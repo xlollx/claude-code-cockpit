@@ -10,7 +10,7 @@ Mod per Claude Code (terminale) che aggiunge un pannello laterale operativo e re
 |---|---|
 | Dove operi | cartella, subscription e tenant az, contesto e namespace kubectl, branch git con modifiche ● e commit ↑ da pushare / ↓ da scaricare (rossi se prod) |
 | Modello | un pulsante per famiglia (`Fable Mythos Opus Sonnet Haiku`...) e `low medium high xhigh max`: un clic applica subito. Le famiglie nuove si aggiungono da sole appena compaiono in uso o nel `model:` di un agent in `~/.claude/agents`; `…` apre il selettore completo di Claude Code |
-| Modalità attive | `newstyle` e le skill "a modalita'" accese nella sessione (`i-have-adhd`, `caveman`, `ponytail` + livello); `✕` scrive nel prompt la frase che la spegne |
+| Modalità attive | `newstyle` e le skill "a modalita'" accese nella sessione (`i-have-adhd`, `caveman`, `ponytail` + livello) e `ultracode` se l'ultimo prompt lo contiene; `✕` scrive nel prompt la frase che spegne la skill |
 | Contesto | barra di riempimento, token, limiti 5h/7g, durata della sessione; avviso all'80% |
 | Azioni rapide | `Compatta`, `Contesto`, `Copia cartella` |
 | Comandi di scrittura | apply/destroy/import, az create/delete/set, kubectl apply/delete, helm, flux, git push, REST in scrittura |

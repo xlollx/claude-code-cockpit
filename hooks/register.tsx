@@ -680,6 +680,10 @@ export const register: Register = on => {
         await update($, modes, ms => ms.filter(m => !stopped.includes(modeName(m))))
       }
     }
+    // "ultracode" nel prompt autorizza i workflow multi-agente per quella richiesta:
+    // resta in elenco finche' un prompt successivo non lo contiene piu'
+    const ultra = /\bultracode\b/.test(t)
+    await update($, modes, ms => [...ms.filter(m => m !== 'ultracode'), ...(ultra ? ['ultracode'] : [])])
     return next(e)
   })
 
@@ -1111,7 +1115,13 @@ export const register: Register = on => {
                 <Button
                   key={`stop-${m}`}
                   plain
-                  onPress={() => void $.prompt.fill({ text: MODE_SKILLS[modeName(m)]?.stop ?? `stop ${m}` })}
+                  onPress={() => {
+                    const def = MODE_SKILLS[modeName(m)]
+                    // skill: frase di stop nel prompt; ultracode: basta toglierlo dall'elenco
+                    void (def !== undefined
+                      ? $.prompt.fill({ text: def.stop })
+                      : update($, modes, ms => ms.filter(x => x !== m)))
+                  }}
                 >
                   <Text dimColor>✕</Text>
                 </Button>
