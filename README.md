@@ -66,6 +66,10 @@ Clonare il repository e caricare la cartella in ogni sessione con la variabile `
 - Il markdown di Claude Code ignora le righe vuote dentro un elenco: per questo gli elenchi li disegna la mod.
 - Le modalita' accese prima del caricamento della mod non risultano finche' non si rilancia la skill.
 
+## Roadmap
+
+Idee e miglioramenti previsti: [ROADMAP.md](ROADMAP.md).
+
 ## Licenza
 
 AGPL-3.0, vedi [LICENSE](LICENSE).
