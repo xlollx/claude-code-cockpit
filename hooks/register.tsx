@@ -416,6 +416,58 @@ const CLIP_PS = [
   "'ok'",
 ].join('\n')
 
+// Clipboard image -> PNG file -> its path in the prompt, so a screenshot can be pasted
+// without saving or dragging a file. Windows: PowerShell (also takes a file copied in
+// Explorer). macOS: osascript. Linux: wl-paste or xclip. The file goes to a temp folder
+const PASTE_PS = [
+  '$p = [Console]::In.ReadLine()',
+  'Add-Type -AssemblyName System.Windows.Forms',
+  'Add-Type -AssemblyName System.Drawing',
+  '$files = [Windows.Forms.Clipboard]::GetFileDropList()',
+  "if ($files.Count -gt 0) { 'file:' + $files[0]; exit 0 }",
+  '$img = [Windows.Forms.Clipboard]::GetImage()',
+  "if ($null -eq $img) { 'none'; exit 0 }",
+  '$null = New-Item -ItemType Directory -Force -Path (Split-Path $p)',
+  '$img.Save($p, [Drawing.Imaging.ImageFormat]::Png)',
+  "'ok:' + $p",
+].join('\n')
+
+async function pasteImage($: EngineInterface) {
+  const d = new Date(await $.clock.now())
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  try {
+    const os = await platform($)
+    let path: string | undefined
+    if (os === 'windows') {
+      const tmp = (await $.env.get('TEMP')) ?? `${await home($)}/AppData/Local/Temp`
+      const target = `${tmp}\\claude-cockpit\\clip-${stamp}.png`
+      const r = await $.process.run(
+        ['powershell.exe', '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', PASTE_PS],
+        { stdin: target + '\n', timeoutMs: 20000 },
+      )
+      const out = r.stdout.trim()
+      path = out.startsWith('ok:') ? out.slice(3) : out.startsWith('file:') ? out.slice(5) : undefined
+    } else {
+      const target = `/tmp/claude-cockpit/clip-${stamp}.png`
+      const sh =
+        os === 'mac'
+          ? `mkdir -p /tmp/claude-cockpit && osascript -e 'set f to open for access (POSIX file "${target}") with write permission' -e 'write (the clipboard as «class PNGf») to f' -e 'close access f'`
+          : `mkdir -p /tmp/claude-cockpit && (wl-paste --type image/png > '${target}' 2>/dev/null || xclip -selection clipboard -t image/png -o > '${target}') && [ -s '${target}' ]`
+      const r = await $.process.run(['sh', '-c', sh], { timeoutMs: 20000 })
+      path = r.exitCode === 0 ? target : undefined
+    }
+    if (path === undefined) {
+      $.ui.toast('No image in the clipboard')
+      return
+    }
+    await $.prompt.fill({ text: ` ${path} `, mode: 'insert' })
+    $.ui.toast('Image saved, path added to the prompt')
+  } catch (err) {
+    $.ui.toast(`Paste failed: ${String(err).slice(0, 200)}`)
+  }
+}
+
 async function copyTable($: EngineInterface, t: Table) {
   const td = 'border:1px solid #999;padding:4px 8px;'
   const html =
@@ -1271,6 +1323,11 @@ export const register: Register = on => {
                 }}
               >
                 <Text>Copy path</Text>
+              </Button>
+            </Box>
+            <Box marginRight={1}>
+              <Button key="act-paste" onPress={() => void pasteImage($)}>
+                <Text>Paste image</Text>
               </Button>
             </Box>
           </Box>,

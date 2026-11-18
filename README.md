@@ -12,7 +12,7 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 | Model | one button per model family (`Fable`, `Mythos`, `Opus`, `Sonnet`, `Haiku`...) and `low medium high xhigh max`: one click applies it. New families appear by themselves as soon as they are used, or when an agent in `~/.claude/agents` names them in `model:`; `…` opens Claude Code's full model picker |
 | Active modes | `newstyle` and the session's mode skills (`i-have-adhd`, `caveman`, `ponytail` + level), plus `ultracode` when the last prompt contains it; `✕` puts the phrase that turns a skill off into the prompt |
 | Context | fill bar, tokens, 5-hour and 7-day limits, session duration; a warning at 80% |
-| Quick actions | `Compact`, `Context`, `Copy path` |
+| Quick actions | `Compact`, `Context`, `Copy path`, `Paste image` (saves the clipboard image, or a file copied in Explorer, and puts its path in the prompt: no need to save or drag a file) |
 | Write commands | commands with effects outside your machine: `tofu`/`terraform apply`, `az ... create/delete/set`, `kubectl apply/delete`, `helm`, `flux`, `git push`, `gh pr create`, REST writes, and MCP tools that write (kubectl_apply, repo_create_branch...) |
 | Reminders / Files | reminders due within 7 days (optional, see below), files edited in the session |
 
