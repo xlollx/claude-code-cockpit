@@ -1,0 +1,13 @@
+{
+  "name": "claude-sidebar",
+  "description": "Mod per Claude Code: sidebar operativa e chat piu leggibile",
+  "owner": {
+    "name": "xlollx"
+  },
+  "plugins": [
+    {
+      "name": "sidebar",
+      "source": "./"
+    }
+  ]
+}

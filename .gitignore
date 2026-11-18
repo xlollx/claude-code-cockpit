@@ -1,0 +1,6 @@
+# tipi generati dal motore di Claude Code al caricamento della mod
+.claude-plugin/types/
+node_modules/
+*.bak*
+.DS_Store
+*.log
