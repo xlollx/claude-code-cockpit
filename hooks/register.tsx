@@ -5,14 +5,14 @@ import type { FileEdit, ModelChoice, Reminder, Usage, Where, WriteCmd } from '..
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
-const usage = atom({ plugin: 'sidebar', key: 'usage' } as const, null, { shape: 'usage-1' })
-const files = atom({ plugin: 'sidebar', key: 'files' } as const, [], { shape: 'files-1' })
-const where = atom({ plugin: 'sidebar', key: 'where' } as const, {}, { shape: 'where-1' })
-const writes = atom({ plugin: 'sidebar', key: 'writes' } as const, [], { shape: 'writes-1' })
-const reminders = atom({ plugin: 'sidebar', key: 'reminders' } as const, [], { shape: 'reminders-1' })
-const warned = atom({ plugin: 'sidebar', key: 'warned' } as const, false, { shape: 'warned-1' })
-const enabled = atom({ plugin: 'sidebar', key: 'enabled' } as const, true, { shape: 'enabled-1' })
-const effort = atom({ plugin: 'sidebar', key: 'effort' } as const, null, { shape: 'effort-1' })
+const usage = atom({ plugin: 'cockpit', key: 'usage' } as const, null, { shape: 'usage-1' })
+const files = atom({ plugin: 'cockpit', key: 'files' } as const, [], { shape: 'files-1' })
+const where = atom({ plugin: 'cockpit', key: 'where' } as const, {}, { shape: 'where-1' })
+const writes = atom({ plugin: 'cockpit', key: 'writes' } as const, [], { shape: 'writes-1' })
+const reminders = atom({ plugin: 'cockpit', key: 'reminders' } as const, [], { shape: 'reminders-1' })
+const warned = atom({ plugin: 'cockpit', key: 'warned' } as const, false, { shape: 'warned-1' })
+const enabled = atom({ plugin: 'cockpit', key: 'enabled' } as const, true, { shape: 'enabled-1' })
+const effort = atom({ plugin: 'cockpit', key: 'effort' } as const, null, { shape: 'effort-1' })
 // same gray as the frame Claude Code draws around the panel (not changeable)
 const PANE_BG = '#262626'
 
@@ -25,9 +25,9 @@ async function effortFromSettings($: EngineInterface) {
   return per?.[model]?.effortLevel ?? global ?? null
 }
 
-const collapsed = atom({ plugin: 'sidebar', key: 'collapsed' } as const, [], { shape: 'collapsed-1' })
-const modes = atom({ plugin: 'sidebar', key: 'modes' } as const, [], { shape: 'modes-1' })
-const models = atom({ plugin: 'sidebar', key: 'models' } as const, [] as ModelChoice[], { shape: 'models-1' })
+const collapsed = atom({ plugin: 'cockpit', key: 'collapsed' } as const, [], { shape: 'collapsed-1' })
+const modes = atom({ plugin: 'cockpit', key: 'modes' } as const, [], { shape: 'modes-1' })
+const models = atom({ plugin: 'cockpit', key: 'models' } as const, [] as ModelChoice[], { shape: 'models-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -424,19 +424,65 @@ async function copyTable($: EngineInterface, t: Table) {
     t.rows.map(r => '<tr>' + r.map(c => `<td style='${td}'>${cellHtml(c)}</td>`).join('') + '</tr>').join('') +
     '</table>'
   const tsv = [t.header, ...t.rows].map(r => r.map(cellText).join('\t')).join('\r\n')
-  const json = JSON.stringify({ html, tsv }).replace(/[\u007f-￿]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
+  const ok = `Table copied (${t.rows.length} rows): paste it into Teams, Outlook or Excel`
   try {
-    const r = await $.process.run(
-      ['powershell.exe', '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', CLIP_PS],
-      { stdin: json, timeoutMs: 20000 },
-    )
-    $.ui.toast(r.exitCode === 0 && r.stdout.includes('ok')
-      ? `Table copied (${t.rows.length} rows): paste it into Teams, Outlook or Excel`
-      : `Copy failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}`)
+    const os = await platform($)
+    if (os === 'windows') {
+      // HTML + tab-separated text in one clipboard entry, via PowerShell (STA)
+      const json = JSON.stringify({ html, tsv }).replace(/[\u007f-￿]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
+      const r = await $.process.run(
+        ['powershell.exe', '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', CLIP_PS],
+        { stdin: json, timeoutMs: 20000 },
+      )
+      $.ui.toast(r.exitCode === 0 && r.stdout.includes('ok') ? ok : `Copy failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}`)
+      return
+    }
+    if (os === 'mac') {
+      // HTML + plain text in one clipboard entry, via AppleScript
+      const str = tsv.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      const script = `set the clipboard to {«class HTML»:«data HTML${utf8Hex(html)}», string:"${str}"}`
+      const r = await $.process.run(['osascript', '-'], { stdin: script, timeoutMs: 20000 })
+      $.ui.toast(r.exitCode === 0 ? ok : `Copy failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}`)
+      return
+    }
+    // Linux: HTML through wl-copy (Wayland) or xclip (X11)
+    for (const argv of [['wl-copy', '--type', 'text/html'], ['xclip', '-selection', 'clipboard', '-t', 'text/html']]) {
+      try {
+        const r = await $.process.run(argv, { stdin: html, timeoutMs: 20000 })
+        if (r.exitCode === 0) {
+          $.ui.toast(ok)
+          return
+        }
+      } catch {
+        // tool not installed: try the next one
+      }
+    }
+    $.ui.toast('Copy failed: install wl-clipboard (Wayland) or xclip (X11)')
   } catch (err) {
     $.ui.toast(`Copy failed: ${String(err).slice(0, 200)}`)
   }
 }
+
+// Operating system the mod runs on, for the clipboard
+async function platform($: EngineInterface): Promise<'windows' | 'mac' | 'linux'> {
+  if ((await $.env.get('OS')) === 'Windows_NT') {
+    return 'windows'
+  }
+  try {
+    const r = await $.process.run(['uname', '-s'], { timeoutMs: 3000 })
+    return r.stdout.trim() === 'Darwin' ? 'mac' : 'linux'
+  } catch {
+    return 'linux'
+  }
+}
+
+// UTF-8 bytes of a string as uppercase hex (AppleScript «data HTML...»)
+const utf8Hex = (s: string) =>
+  encodeURIComponent(s)
+    .replace(/%([0-9A-Fa-f]{2})|([^%])/g, (_m, h: string | undefined, c: string | undefined) =>
+      h ?? (c ?? '').charCodeAt(0).toString(16).padStart(2, '0'),
+    )
+    .toUpperCase()
 
 // Splits markdown into text and closed ``` blocks; an unclosed block
 // (response still streaming in) stays text and is drawn by the markdown
@@ -658,9 +704,18 @@ async function refreshAll($: EngineInterface) {
   await Promise.all([measure($), refreshWhere($), refreshReminders($)])
 }
 
+// /cockpit and /sidebar: refresh and open the panel
+async function openCommand($: EngineInterface) {
+  await refreshAll($)
+  const r = await openPane($)
+
+  return { text: r.isPlaced ? 'Panel open.' : `Panel not shown: ${r.reason ?? 'terminal too narrow'}` }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'sidebar', description: 'Open the session side panel' })
+    await $.command.register({ name: 'cockpit', description: 'Open the cockpit side panel' })
+    await $.command.register({ name: 'sidebar', description: 'Open the cockpit side panel (alias of /cockpit)' })
     await $.command.register({
       name: 'newstyle',
       description: 'Cockpit look (side panel, prompt boxes, readable replies): on | off',
@@ -733,12 +788,8 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'sidebar' }, async $ => {
-    await refreshAll($)
-    const r = await openPane($)
-
-    return { text: r.isPlaced ? 'Panel open.' : `Panel not shown: ${r.reason ?? 'terminal too narrow'}` }
-  })
+  on('command.run', { command: 'cockpit' }, openCommand)
+  on('command.run', { command: 'sidebar' }, openCommand)
 
   // actual effort of each main-loop request (subagents have an agentId)
   on('turn.step', async function* ($, e, next) {

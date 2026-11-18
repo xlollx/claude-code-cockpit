@@ -35,7 +35,7 @@ export type ModelChoice = { family: string; id: string }
 
 declare module 'claude-code' {
   interface PluginState {
-    sidebar: {
+    cockpit: {
       usage: Shaped<Usage | null>
       files: Shaped<FileEdit[]>
       where: Shaped<Where>

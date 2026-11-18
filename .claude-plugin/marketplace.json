@@ -6,7 +6,7 @@
   },
   "plugins": [
     {
-      "name": "sidebar",
+      "name": "cockpit",
       "source": "./"
     }
   ]

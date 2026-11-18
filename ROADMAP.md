@@ -5,10 +5,11 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 ## Before the first public release
 
 - [x] **English interface**: panel, toasts, buttons, README.
+- [x] **Optional integrations documented**: reminders file, mode skills, production highlight.
 - [ ] **Screenshots and a GIF** in the README: wide panel, two-line bar, tables, code.
 - [ ] **Configurable options** (plugin `userConfig`): colours, prose width, visible sections, the rule that spots production (today: a name containing `prod`).
-- [ ] **Rename the plugin** `sidebar` -> `cockpit`, migrating saved state (folded sections, known models, `/newstyle`).
-- [ ] **Copy table on macOS and Linux**: today Windows only (`powershell.exe`); `osascript`/`pbcopy` on macOS, `xclip -t text/html` or `wl-copy` on Linux.
+- [x] **Rename the plugin** `sidebar` -> `cockpit` (`/sidebar` kept as an alias).
+- [x] **Copy table on macOS and Linux**: `osascript` on macOS, `wl-copy`/`xclip` on Linux (to be tested on real machines).
 - [ ] **Tests** with `claude plugin test` for the pure functions: `splitCode`, `splitTables`, `splitLabels`, `splitLists`, `tableGrid`, `findWrite`, `mcpWrite`.
 - [ ] **Italian interface** as an option, next to English.
 

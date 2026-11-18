@@ -1,6 +1,6 @@
 {
-  "name": "sidebar",
-  "version": "0.5.0",
+  "name": "cockpit",
+  "version": "0.6.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "types": "./types/index.d.ts"
 }
