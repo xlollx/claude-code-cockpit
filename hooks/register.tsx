@@ -542,14 +542,21 @@ const utf8Hex = (s: string) =>
 // (response still streaming in) stays text and is drawn by the markdown
 function splitCode(md: string): Part[] {
   const out: Part[] = []
-  const fence = /^```([\w+#.-]*)[^\n]*\n([\s\S]*?)^```[ \t]*$/gm
+  // fences may be indented (a code block inside a list item): same indent to close it
+  const fence = /^([ \t]*)```([\w+#.-]*)[^\n]*\n([\s\S]*?)^\1```[ \t]*$/gm
   let last = 0
   for (let m = fence.exec(md); m !== null; m = fence.exec(md)) {
     const before = md.slice(last, m.index)
     if (before.trim() !== '') {
       out.push({ text: before.replace(/^\n+|\n+$/g, '') })
     }
-    out.push({ text: '', code: (m[2] ?? '').replace(/\n$/, ''), lang: m[1] ?? '' })
+    const indent = (m[1] ?? '').length
+    const code = (m[3] ?? '')
+      .replace(/\n$/, '')
+      .split('\n')
+      .map(l => l.slice(Math.min(indent, l.length - l.trimStart().length)))
+      .join('\n')
+    out.push({ text: '', code, lang: m[2] ?? '' })
     last = m.index + m[0].length
   }
   const rest = md.slice(last)
