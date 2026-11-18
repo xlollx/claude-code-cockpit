@@ -28,7 +28,24 @@ export type Where = {
 /** A command with effects outside the machine (apply, delete, push...) run in the session */
 export type WriteCmd = { at: number; text: string; ok: boolean }
 
-export type Reminder = { due: string; title: string }
+export type Reminder = { id: string; due: string; title: string }
+
+/** Pull request of the current branch: `none` = no open PR, `error` = could not ask (title holds why) */
+export type PullRequest = {
+  branch: string
+  state: 'open' | 'none' | 'error'
+  id: number
+  title: string
+  url: string
+  draft: boolean
+  approved: number
+  rejected: number
+  waiting: number
+  ci: 'passed' | 'failed' | 'running' | 'none'
+}
+
+/** One item of Claude's task list */
+export type TaskItem = { id: string; subject: string; status: 'pending' | 'in_progress' | 'completed' }
 
 /** A selectable model: family (fable, mythos...) and what to pass to /model (alias or id) */
 export type ModelChoice = { family: string; id: string }
@@ -52,6 +69,10 @@ declare module 'claude-code' {
       modes: Shaped<string[]>
       /** models shown in "Modello": known aliases + families seen in use or in agents */
       models: Shaped<ModelChoice[]>
+      /** pull request of the current branch, null outside a GitHub/Azure DevOps repo */
+      pr: Shaped<PullRequest | null>
+      /** Claude's task list in this session */
+      tasks: Shaped<TaskItem[]>
     }
   }
 }

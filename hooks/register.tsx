@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { FileEdit, ModelChoice, Reminder, Usage, Where, WriteCmd } from '../types'
+import type { FileEdit, ModelChoice, PullRequest, Reminder, TaskItem, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
@@ -9,7 +9,7 @@ const usage = atom({ plugin: 'cockpit', key: 'usage' } as const, null, { shape: 
 const files = atom({ plugin: 'cockpit', key: 'files' } as const, [], { shape: 'files-1' })
 const where = atom({ plugin: 'cockpit', key: 'where' } as const, {}, { shape: 'where-1' })
 const writes = atom({ plugin: 'cockpit', key: 'writes' } as const, [], { shape: 'writes-1' })
-const reminders = atom({ plugin: 'cockpit', key: 'reminders' } as const, [], { shape: 'reminders-1' })
+const reminders = atom({ plugin: 'cockpit', key: 'reminders' } as const, [], { shape: 'reminders-2' })
 const warned = atom({ plugin: 'cockpit', key: 'warned' } as const, false, { shape: 'warned-1' })
 const enabled = atom({ plugin: 'cockpit', key: 'enabled' } as const, true, { shape: 'enabled-1' })
 const effort = atom({ plugin: 'cockpit', key: 'effort' } as const, null, { shape: 'effort-1' })
@@ -28,6 +28,8 @@ async function effortFromSettings($: EngineInterface) {
 const collapsed = atom({ plugin: 'cockpit', key: 'collapsed' } as const, [], { shape: 'collapsed-1' })
 const modes = atom({ plugin: 'cockpit', key: 'modes' } as const, [], { shape: 'modes-1' })
 const models = atom({ plugin: 'cockpit', key: 'models' } as const, [] as ModelChoice[], { shape: 'models-1' })
+const pr = atom({ plugin: 'cockpit', key: 'pr' } as const, null as PullRequest | null, { shape: 'pr-1' })
+const tasks = atom({ plugin: 'cockpit', key: 'tasks' } as const, [] as TaskItem[], { shape: 'tasks-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -740,11 +742,11 @@ async function refreshReminders($: EngineInterface) {
   let list: Reminder[] = []
   if (text) {
     try {
-      const limit = new Date((await $.clock.now()) + 7 * 864e5).toISOString().slice(0, 16)
-      list = (JSON.parse(text) as { due: string; title: string; done?: boolean }[])
+      const limit = localStamp((await $.clock.now()) + 7 * 864e5)
+      list = (JSON.parse(text) as { id?: string; due: string; title: string; done?: boolean }[])
         .filter(r => !r.done && r.due <= limit)
         .sort((a, b) => a.due.localeCompare(b.due))
-        .map(r => ({ due: r.due, title: r.title }))
+        .map(r => ({ id: r.id ?? `${r.due}|${r.title}`, due: r.due, title: r.title }))
     } catch {
       /* invalid JSON: empty list */
     }
@@ -754,6 +756,234 @@ async function refreshReminders($: EngineInterface) {
 
 async function refreshAll($: EngineInterface) {
   await Promise.all([measure($), refreshWhere($), refreshReminders($)])
+  await refreshPr($)
+}
+
+// Local "YYYY-MM-DDTHH:MM", the format of the reminders file
+function localStamp(ms: number) {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// Marks a reminder done or moves it one day later, in ~/.claude/reminders.json
+async function changeReminder($: EngineInterface, id: string, action: 'done' | 'snooze') {
+  const path = `${await home($)}/.claude/reminders.json`
+  try {
+    const list = JSON.parse((await readText($, path)) ?? '[]') as { id?: string; due: string; title: string; done?: boolean }[]
+    const item = list.find(r => (r.id ?? `${r.due}|${r.title}`) === id)
+    if (item === undefined) {
+      $.ui.toast('Reminder not found')
+      return
+    }
+    if (action === 'done') {
+      item.done = true
+    } else {
+      const [date = '', time = '09:00'] = item.due.split('T')
+      const [y, m, d] = date.split('-').map(Number)
+      const [h, mi] = time.split(':').map(Number)
+      item.due = localStamp(new Date(y ?? 1970, (m ?? 1) - 1, (d ?? 1) + 1, h ?? 9, mi ?? 0).getTime())
+    }
+    await $.fs.write(path, JSON.stringify(list, null, 2) + '\n')
+    $.ui.toast(action === 'done' ? `Done: ${cut(item.title, 60)}` : `Moved to ${item.due.replace('T', ' ')}`)
+  } catch (err) {
+    $.ui.toast(`Reminder not updated: ${String(err).slice(0, 150)}`)
+  }
+  await refreshReminders($)
+}
+
+// ---------- Pull request of the current branch (GitHub, Azure DevOps) ----------
+
+type Remote =
+  | { kind: 'github'; owner: string; repo: string }
+  | { kind: 'ado'; org: string; project: string; repo: string; host: string }
+
+function parseRemote(url: string): Remote | undefined {
+  let m = /github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(url)
+  if (m) {
+    return { kind: 'github', owner: m[1] ?? '', repo: m[2] ?? '' }
+  }
+  m = /dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/]+?)\/?$/.exec(url)
+  if (m) {
+    return { kind: 'ado', org: m[1] ?? '', project: m[2] ?? '', repo: m[3] ?? '', host: 'dev.azure.com' }
+  }
+  m = /ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\/([^/]+?)\/?$/.exec(url)
+  if (m) {
+    return { kind: 'ado', org: m[1] ?? '', project: m[2] ?? '', repo: m[3] ?? '', host: 'dev.azure.com' }
+  }
+  m = /([^/.@]+)\.visualstudio\.com\/(?:DefaultCollection\/)?([^/]+)\/_git\/([^/]+?)\/?$/.exec(url)
+  if (m) {
+    return { kind: 'ado', org: m[1] ?? '', project: m[2] ?? '', repo: m[3] ?? '', host: 'dev.azure.com' }
+  }
+  return undefined
+}
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+function base64(s: string) {
+  const bytes = encodeURIComponent(s).replace(/%([0-9A-F]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+  let out = ''
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes.charCodeAt(i) << 16) | ((bytes.charCodeAt(i + 1) || 0) << 8) | (bytes.charCodeAt(i + 2) || 0)
+    const c = (k: number) => B64.charAt(k & 63)
+    out += c(n >> 18) + c(n >> 12) + (i + 1 < bytes.length ? c(n >> 6) : "=") + (i + 2 < bytes.length ? c(n) : "=")
+  }
+  return out
+}
+
+// Token git already holds for the host (Git Credential Manager), never prompting
+async function gitToken($: EngineInterface, host: string, path?: string) {
+  try {
+    const r = await $.process.run(['git', 'credential', 'fill'], {
+      stdin: `protocol=https\nhost=${host}\n${path ? `path=${path}\n` : ''}\n`,
+      env: { GCM_INTERACTIVE: 'never', GIT_TERMINAL_PROMPT: '0' },
+      timeoutMs: 10000,
+    })
+    return /^password=(.*)$/m.exec(r.stdout)?.[1]?.trim()
+  } catch {
+    return undefined
+  }
+}
+
+async function getJson($: EngineInterface, url: string, headers: Record<string, string>) {
+  const r = await $.http.fetch(url, { headers })
+  if (!r.ok) {
+    throw new Error(`HTTP ${r.status}`)
+  }
+  return JSON.parse(r.text) as unknown
+}
+
+async function refreshPr($: EngineInterface) {
+  const w = await read($, where)
+  const branch = w.branch
+  if (branch === undefined || branch === 'HEAD') {
+    await update($, pr, () => null)
+    return
+  }
+  let remote: Remote | undefined
+  try {
+    const r = await $.process.run(['git', 'remote', 'get-url', 'origin'], { timeoutMs: 5000 })
+    remote = r.exitCode === 0 ? parseRemote(r.stdout.trim()) : undefined
+  } catch {
+    remote = undefined
+  }
+  if (remote === undefined) {
+    await update($, pr, () => null)
+    return
+  }
+  const base: PullRequest = { branch, state: 'none', id: 0, title: '', url: '', draft: false, approved: 0, rejected: 0, waiting: 0, ci: 'none' }
+  try {
+    const next = remote.kind === 'github' ? await githubPr($, remote, base) : await adoPr($, remote, base)
+    await update($, pr, () => next)
+  } catch (err) {
+    await update($, pr, () => ({ ...base, state: 'error' as const, title: String(err).slice(0, 80) }))
+  }
+}
+
+async function githubPr($: EngineInterface, r: { owner: string; repo: string }, base: PullRequest): Promise<PullRequest> {
+  const tok = await gitToken($, 'github.com')
+  const h: Record<string, string> = { Accept: 'application/vnd.github+json', 'User-Agent': 'claude-code-cockpit' }
+  if (tok) {
+    h.Authorization = `Bearer ${tok}`
+  }
+  const api = `https://api.github.com/repos/${r.owner}/${r.repo}`
+  const list = (await getJson($, `${api}/pulls?state=open&head=${encodeURIComponent(`${r.owner}:${base.branch}`)}`, h)) as {
+    number: number; title: string; html_url: string; draft: boolean; head: { sha: string }
+  }[]
+  const p = list[0]
+  if (p === undefined) {
+    return base
+  }
+  const reviews = (await getJson($, `${api}/pulls/${p.number}/reviews`, h)) as { user: { login: string }; state: string }[]
+  const last = new Map<string, string>()
+  for (const rv of reviews) {
+    if (rv.state !== 'COMMENTED') {
+      last.set(rv.user.login, rv.state)
+    }
+  }
+  const states = [...last.values()]
+  const checks = (await getJson($, `${api}/commits/${p.head.sha}/check-runs`, h)) as { check_runs: { status: string; conclusion: string | null }[] }
+  const runs = checks.check_runs
+  const ci: PullRequest['ci'] =
+    runs.length === 0 ? 'none'
+      : runs.some(c => ['failure', 'timed_out', 'cancelled', 'action_required'].includes(c.conclusion ?? '')) ? 'failed'
+        : runs.some(c => c.status !== 'completed') ? 'running' : 'passed'
+  return {
+    ...base, state: 'open', id: p.number, title: p.title, url: p.html_url, draft: p.draft,
+    approved: states.filter(x => x === 'APPROVED').length,
+    rejected: states.filter(x => x === 'CHANGES_REQUESTED').length,
+    waiting: 0, ci,
+  }
+}
+
+async function adoPr($: EngineInterface, r: { org: string; project: string; repo: string }, base: PullRequest): Promise<PullRequest> {
+  const tok = await gitToken($, 'dev.azure.com', `${r.org}/${r.project}/_git/${r.repo}`)
+  if (!tok) {
+    throw new Error('no Azure DevOps credential in git')
+  }
+  const root = `https://dev.azure.com/${r.org}/${r.project}`
+  const ask = async (url: string) => {
+    try {
+      return await getJson($, url, { Authorization: `Bearer ${tok}` })
+    } catch {
+      return await getJson($, url, { Authorization: `Basic ${base64(`:${tok}`)}` })
+    }
+  }
+  const prs = (await ask(`${root}/_apis/git/repositories/${r.repo}/pullrequests?searchCriteria.sourceRefName=${encodeURIComponent(`refs/heads/${base.branch}`)}&searchCriteria.status=active&api-version=7.1`)) as {
+    value: { pullRequestId: number; title: string; isDraft?: boolean; reviewers?: { vote: number }[]; repository: { project: { id: string } } }[]
+  }
+  const p = prs.value[0]
+  if (p === undefined) {
+    return base
+  }
+  const votes = (p.reviewers ?? []).map(x => x.vote)
+  let ci: PullRequest['ci'] = 'none'
+  try {
+    const art = encodeURIComponent(`vstfs:///CodeReview/CodeReviewId/${p.repository.project.id}/${p.pullRequestId}`)
+    const ev = (await ask(`${root}/_apis/policy/evaluations?artifactId=${art}&api-version=7.1-preview.1`)) as {
+      value: { status: string; configuration: { type: { displayName: string } } }[]
+    }
+    const builds = ev.value.filter(x => x.configuration.type.displayName === 'Build')
+    ci = builds.length === 0 ? 'none'
+      : builds.some(x => x.status === 'rejected' || x.status === 'broken') ? 'failed'
+        : builds.some(x => x.status === 'running' || x.status === 'queued') ? 'running' : 'passed'
+  } catch {
+    ci = 'none'
+  }
+  return {
+    ...base, state: 'open', id: p.pullRequestId, title: p.title, draft: p.isDraft === true,
+    url: `${root}/_git/${r.repo}/pullrequest/${p.pullRequestId}`,
+    approved: votes.filter(v => v >= 5).length,
+    rejected: votes.filter(v => v === -10).length,
+    waiting: votes.filter(v => v === -5).length,
+    ci,
+  }
+}
+
+// Keeps the session's task list from the task tools' inputs and results
+async function trackTasks($: EngineInterface, tool: string, input: Record<string, unknown>, result: unknown) {
+  if (tool === 'TodoWrite') {
+    const todos = (input.todos as { content: string; status: string }[] | undefined) ?? []
+    await update($, tasks, () => todos.map((t, i) => ({ id: String(i), subject: t.content, status: t.status as TaskItem['status'] })))
+    return
+  }
+  if (tool === 'TaskCreate') {
+    const t = (result as { task?: { id: string; subject: string } } | undefined)?.task
+    const subject = t?.subject ?? String(input.subject ?? '')
+    const id = t?.id ?? subject
+    await update($, tasks, list => [...list.filter(x => x.id !== id), { id, subject, status: 'pending' as const }])
+    return
+  }
+  const id = String(input.taskId ?? '')
+  const status = input.status as string | undefined
+  await update($, tasks, list =>
+    status === 'deleted'
+      ? list.filter(x => x.id !== id)
+      : list.map(x =>
+          x.id === id
+            ? { ...x, subject: typeof input.subject === 'string' ? input.subject : x.subject, status: (status as TaskItem['status']) ?? x.status }
+            : x,
+        ),
+  )
 }
 
 // /cockpit and /sidebar: refresh and open the panel
@@ -784,7 +1014,16 @@ export const register: Register = on => {
     await refreshAll($)
     // az account set / kubectl config use-context done outside here: recheck every 30 s
     $.clock.every(30_000, () => {
-      void refreshWhere($)
+      void (async () => {
+        await refreshWhere($)
+        const b = (await read($, where)).branch
+        if (b !== (await read($, pr))?.branch) {
+          await refreshPr($)
+        }
+      })()
+    })
+    $.clock.every(120_000, () => {
+      void refreshPr($)
     })
     $.clock.every(300_000, () => {
       void refreshReminders($)
@@ -873,6 +1112,15 @@ export const register: Register = on => {
       return ran
     }
 
+    // Claude's task list (main loop only): TaskCreate/TaskUpdate or the older TodoWrite
+    if ((e.tool === 'TaskCreate' || e.tool === 'TaskUpdate' || e.tool === 'TodoWrite') && e.agentId === undefined) {
+      const ran = await next(e)
+      if (ran.deny === undefined && ran.isError !== true) {
+        await trackTasks($, e.tool, e as unknown as Record<string, unknown>, ran.result as unknown)
+      }
+      return ran
+    }
+
     if (e.tool === 'Skill') {
       await applyMode($, input.skill ?? '', input.args ?? '')
       return next(e)
@@ -887,6 +1135,9 @@ export const register: Register = on => {
       }
       // a command may have changed subscription, k8s context or branch
       await refreshWhere($)
+      if (line !== undefined && /\bgit\b.*\bpush\b|\bgh\s+pr\b|\baz\s+repos\s+pr\b/.test(line)) {
+        void refreshPr($)
+      }
 
       return ran
     }
@@ -1107,7 +1358,9 @@ export const register: Register = on => {
     const barW = Math.max(8, Math.min(24, cols - 10))
     const pct = u?.percent ?? 0
     const pctColor = pct >= 80 ? 'error' : pct >= 60 ? 'warning' : ACCENT
-    const today = new Date(await $.clock.now()).toISOString().slice(0, 16)
+    const today = localStamp(await $.clock.now())
+    const pull = await read($, pr)
+    const tl = await read($, tasks)
     const prodAz = isProd(w.azSub)
     const prodKube = isProd(w.kube)
     const prodGit = w.branch === 'main' || w.branch === 'master'
@@ -1333,6 +1586,60 @@ export const register: Register = on => {
           </Box>,
         )}
 
+        {pull !== null &&
+          section('pr', 'Pull request', BLUE, undefined,
+            <Box flexDirection="column">
+              {pull.state === 'none' && <Text dimColor>none open for {cut(pull.branch, cols - 20)}</Text>}
+              {pull.state === 'error' && <Text dimColor>not available: {cut(pull.title, cols - 16)}</Text>}
+              {pull.state === 'open' && (
+                <Box flexDirection="column">
+                  <Button
+                    key="pr-link"
+                    plain
+                    onPress={async press => {
+                      const r = await $.ui.copy({ text: pull.url, surface: press.surface })
+                      $.ui.toast(r.isCopied ? 'Pull request link copied' : 'Copy failed')
+                    }}
+                  >
+                    <Text>
+                      <Text color={BLUE} bold>#{pull.id}</Text>
+                      {pull.draft ? <Text dimColor> draft</Text> : ''} {cut(pull.title, cols - 10)}
+                    </Text>
+                  </Button>
+                  <Text>
+                    <Text dimColor>reviews </Text>
+                    <Text color="success">✓{pull.approved}</Text>
+                    <Text color={pull.rejected > 0 ? 'error' : undefined} dimColor={pull.rejected === 0}> ✗{pull.rejected}</Text>
+                    {pull.waiting > 0 && <Text color="warning"> ⏸{pull.waiting}</Text>}
+                    <Text dimColor>   CI </Text>
+                    <Text color={pull.ci === 'passed' ? 'success' : pull.ci === 'failed' ? 'error' : pull.ci === 'running' ? 'warning' : undefined} dimColor={pull.ci === 'none'}>
+                      {pull.ci === 'passed' ? '✓ passed' : pull.ci === 'failed' ? '✗ failed' : pull.ci === 'running' ? '⏳ running' : '—'}
+                    </Text>
+                  </Text>
+                </Box>
+              )}
+            </Box>,
+          )}
+
+        {tl.length > 0 &&
+          section('tasks', 'Tasks', ACCENT, undefined,
+            <Box flexDirection="column">
+              <Text dimColor>
+                {tl.filter(t => t.status === 'completed').length}/{tl.length} done
+              </Text>
+              {[...tl.filter(t => t.status === 'in_progress'), ...tl.filter(t => t.status === 'pending'), ...tl.filter(t => t.status === 'completed')]
+                .slice(0, 8)
+                .map(t => (
+                  <Text dimColor={t.status === 'completed'} bold={t.status === 'in_progress'}>
+                    <Text color={t.status === 'completed' ? 'success' : t.status === 'in_progress' ? ACCENT : undefined}>
+                      {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▶' : '○'}
+                    </Text>{' '}
+                    {cut(t.subject, cols - 4)}
+                  </Text>
+                ))}
+            </Box>,
+          )}
+
         {section('scritture', 'Write commands', wr.length > 0 ? PROD : VIOLET, wr.length,
           <Box flexDirection="column">
             {wr.length === 0 && <Text dimColor>none in this session</Text>}
@@ -1349,9 +1656,19 @@ export const register: Register = on => {
           section('promemoria', 'Reminders', VIOLET, rem.length,
             <Box flexDirection="column">
               {rem.slice(0, 3).map(r => (
-                <Text>
-                  <Text color={r.due <= today ? 'error' : 'warning'}>{r.due.slice(8, 10)}/{r.due.slice(5, 7)}</Text> {cut(r.title, cols - 7)}
-                </Text>
+                <Box flexDirection="column">
+                  <Text>
+                    <Text color={r.due <= today ? 'error' : 'warning'}>{r.due.slice(8, 10)}/{r.due.slice(5, 7)} {r.due.slice(11, 16)}</Text> {cut(r.title, cols - 13)}
+                  </Text>
+                  <Box flexDirection="row" marginLeft={6}>
+                    <Button key={`rem-done-${r.id}`} plain onPress={() => void changeReminder($, r.id, 'done')}>
+                      <Text color="success">{' ✓ done '}</Text>
+                    </Button>
+                    <Button key={`rem-snooze-${r.id}`} plain onPress={() => void changeReminder($, r.id, 'snooze')}>
+                      <Text dimColor>{' +1 day '}</Text>
+                    </Button>
+                  </Box>
+                </Box>
               ))}
             </Box>,
           )}

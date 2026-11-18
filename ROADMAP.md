@@ -16,13 +16,13 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 ## Side panel
 
 - [ ] **More clouds and contexts**: AWS profile/region, GCP project, Docker context, OpenTofu/Terraform workspace.
-- [ ] **Pull request of the current branch**: number, reviews, CI result (GitHub and Azure DevOps).
-- [ ] **Task progress**: Claude's todo/task list with done, in progress and pending items.
+- [x] **Pull request of the current branch**: number, reviews, CI result (GitHub and Azure DevOps).
+- [x] **Task progress**: Claude's todo/task list with done, in progress and pending items.
 - [ ] **Running subagents and background commands**, with their duration.
 - [ ] **Context over time**: a small sparkline of how full the context is, to know when to compact.
 - [ ] **Clickable edited files**: copy the path or open it in the editor.
 - [ ] **Clickable write commands**: copy the full command.
-- [ ] **Reminders from the panel**: mark as done, snooze one day.
+- [x] **Reminders from the panel**: mark as done, snooze one day.
 - [ ] **MCP server status** as soon as the mod API exposes it (not available today).
 
 ## Chat
@@ -35,6 +35,7 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 - [ ] **Long tool output** folded, one click to expand.
 - [ ] **Send time** next to each prompt.
 - [ ] **Light palette** for terminals with a light background.
+- [ ] **Image preview** of pasted images in the panel, on terminals that draw pictures (kitty, Ghostty, iTerm2; not Windows Terminal).
 
 ## Done
 
