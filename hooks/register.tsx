@@ -844,8 +844,9 @@ async function gitToken($: EngineInterface, host: string, path?: string) {
   }
 }
 
+// Read-only: GET requests only, the pull request is shown, never changed
 async function getJson($: EngineInterface, url: string, headers: Record<string, string>) {
-  const r = await $.http.fetch(url, { headers })
+  const r = await $.http.fetch(url, { method: 'GET', headers })
   if (!r.ok) {
     throw new Error(`HTTP ${r.status}`)
   }
@@ -1593,19 +1594,11 @@ export const register: Register = on => {
               {pull.state === 'error' && <Text dimColor>not available: {cut(pull.title, cols - 16)}</Text>}
               {pull.state === 'open' && (
                 <Box flexDirection="column">
-                  <Button
-                    key="pr-link"
-                    plain
-                    onPress={async press => {
-                      const r = await $.ui.copy({ text: pull.url, surface: press.surface })
-                      $.ui.toast(r.isCopied ? 'Pull request link copied' : 'Copy failed')
-                    }}
-                  >
-                    <Text>
-                      <Text color={BLUE} bold>#{pull.id}</Text>
-                      {pull.draft ? <Text dimColor> draft</Text> : ''} {cut(pull.title, cols - 10)}
-                    </Text>
-                  </Button>
+                  {/* display only: the mod never acts on the pull request */}
+                  <Text>
+                    <Text color={BLUE} bold>#{pull.id}</Text>
+                    {pull.draft ? <Text dimColor> draft</Text> : ''} {cut(pull.title, cols - 10)}
+                  </Text>
                   <Text>
                     <Text dimColor>reviews </Text>
                     <Text color="success">✓{pull.approved}</Text>
