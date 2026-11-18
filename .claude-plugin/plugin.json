@@ -1,6 +1,42 @@
 {
   "name": "cockpit",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "palette": {
+      "type": "string",
+      "title": "Palette",
+      "description": "Colours for a dark or a light terminal background",
+      "options": [
+        "dark",
+        "light"
+      ],
+      "default": "dark"
+    },
+    "proseWidth": {
+      "type": "number",
+      "title": "Text width",
+      "description": "Maximum width of reply text, in columns (40 or more)",
+      "default": 100
+    },
+    "hiddenSections": {
+      "type": "string",
+      "title": "Hidden sections",
+      "description": "Panel sections to hide, comma separated: where, model, modes, context, pr, tasks, actions, writes, reminders, files",
+      "default": ""
+    },
+    "prodPattern": {
+      "type": "string",
+      "title": "Production pattern",
+      "description": "Regular expression that marks a subscription, kubectl context or branch as production (case-insensitive; noprod and nonprod never match)",
+      "default": "prod"
+    },
+    "openOnStart": {
+      "type": "boolean",
+      "title": "Open on start",
+      "description": "Open the panel when a session starts",
+      "default": true
+    }
+  }
 }

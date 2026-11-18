@@ -32,7 +32,7 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 | Your prompts | box with a blue bar and dark background |
 | `/command` output | orange bar (red on error) |
 | Replies | short heading lines in bold orange, lists drawn with coloured numbers and a blank line between items that have sub-items, prose wrapped at 100 columns |
-| Code blocks | box with a green bar, language name, syntax highlighting |
+| Code blocks | box with a green bar, language name, syntax highlighting, and `⧉ Copy code` under it |
 | Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat |
 | `⧉ Copy table` | under every table: copies it as HTML, so Teams, Outlook, Word and Excel paste a real table. Windows: HTML + tab-separated text through PowerShell. macOS: HTML + text through `osascript`. Linux: HTML through `wl-copy` or `xclip` (macOS and Linux not tested yet) |
 | End of turn | `▣ Opus 5.5 · high · 40s` and a thin line between one turn and the next |
@@ -59,6 +59,18 @@ The panel opens by itself in new sessions; `/cockpit` opens it again if you clos
 
 Clone the repository and load the folder in every session with `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of your user `settings.json`, or start Claude Code with `claude --plugin-dir <folder>`. After a change run `claude plugin validate <folder>`. `tsconfig.json` extends the types Claude Code writes into `.claude-plugin/types/` the first time it loads the mod.
 
+## Options
+
+Set them in `/config` (the plugin's rows) or in `settings.json` under `pluginConfigs.cockpit.options`:
+
+| Option | Default | What it does |
+|---|---|---|
+| `palette` | `dark` | `light` for terminals with a light background |
+| `proseWidth` | `100` | maximum width of reply text, in columns (40 or more) |
+| `hiddenSections` | empty | panel sections to hide, comma separated: `where`, `model`, `modes`, `context`, `pr`, `tasks`, `actions`, `writes`, `reminders`, `files` |
+| `prodPattern` | `prod` | regular expression that marks a subscription, kubectl context or branch as production (`noprod`/`nonprod` never match) |
+| `openOnStart` | `true` | open the panel when a session starts |
+
 ## Optional integrations
 
 None of these is required; each section stays hidden or empty when its source is missing.
@@ -71,7 +83,7 @@ None of these is required; each section stays hidden or empty when its source is
 
 - **Active modes** follows these skills when they are installed: `i-have-adhd`, `caveman` (with `ultracave` and `megacave`), `ponytail` (with its level). A skill named `panic`, run without arguments, clears the list. Other skills are not tracked.
 - **Azure and Kubernetes** are read from `AZURE_CONFIG_DIR` (default `~/.azure`) and `KUBECONFIG` (default `~/.kube/config`): files only, no CLI call.
-- **Production highlight**: subscription, kubectl context and branch turn red when the name contains `prod` (but not `noprod` or `nonprod`), and `main`/`master` turn yellow.
+- **Production highlight**: subscription and kubectl context turn red when the name matches `prodPattern` (default `prod`, never `noprod` or `nonprod`), and `main`/`master` turn yellow.
 
 ## Extras
 

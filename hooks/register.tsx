@@ -14,7 +14,7 @@ const warned = atom({ plugin: 'cockpit', key: 'warned' } as const, false, { shap
 const enabled = atom({ plugin: 'cockpit', key: 'enabled' } as const, true, { shape: 'enabled-1' })
 const effort = atom({ plugin: 'cockpit', key: 'effort' } as const, null, { shape: 'effort-1' })
 // same gray as the frame Claude Code draws around the panel (not changeable)
-const PANE_BG = '#262626'
+let PANE_BG = '#262626'
 
 // Effort before the first request: the one saved for the model in the settings
 async function effortFromSettings($: EngineInterface) {
@@ -163,17 +163,17 @@ async function openPicker($: EngineInterface, command: 'model' | 'effort') {
 // rows: height requested when the panel sits above the prompt (narrow window); the dock ignores it
 const openPane = ($: EngineInterface) => $.ui.open({ id: PANE, title: TITLE, backgroundColor: PANE_BG, rows: 3 })
 
-const ACCENT = '#f5a97f'
-const BLUE = '#6ea8f7'
-const VIOLET = '#a98bdc'
-const PROD = '#ef5f6b'
-const USER_BG = '#1a1a20'
-const CODE_BG = '#16161c'
-const CODE_BAR = '#98c379'
+let ACCENT = '#f5a97f'
+let BLUE = '#6ea8f7'
+let VIOLET = '#a98bdc'
+let PROD = '#ef5f6b'
+let USER_BG = '#1a1a20'
+let CODE_BG = '#16161c'
+let CODE_BAR = '#98c379'
 // free columns between the chat and the sidebar
 const GAP = 3
 // line between one turn and the next: slightly lighter than the background
-const TURN_RULE = '#2c2c36'
+let TURN_RULE = '#2c2c36'
 
 type Part = {
   text: string
@@ -186,7 +186,7 @@ type Part = {
 }
 
 // maximum width of prose text: shorter lines read better
-const PROSE_MAX = 100
+let PROSE_MAX = 100
 const LIST_ITEM = /^(\d+[.)]|[-*+])\s/
 
 // Heading lines written as plain text ("Il problema", "Rischio ...") followed by a
@@ -313,9 +313,9 @@ function splitTables(md: string): Part[] {
   return out
 }
 
-const HEAD_BG = '#25253a'
-const ZEBRA_BG = '#15151b'
-const TABLE_BORDER = '#4a4a5c'
+let HEAD_BG = '#25253a'
+let ZEBRA_BG = '#15151b'
+let TABLE_BORDER = '#4a4a5c'
 
 // Wraps inside a cell: by words, splitting only the words longer than the column
 function wrapCell(s: string, w: number): string[] {
@@ -623,7 +623,50 @@ function mcpWrite(tool: string, input: Record<string, unknown>): string | undefi
   }
   return `${m[1]}: ${m[2]}${command !== '' ? ` ${command}` : ''}`
 }
-const isProd = (s?: string) => !!s && /prod/i.test(s) && !/no-?prod|non-?prod/i.test(s)
+let PROD_RX = /prod/i
+const isProd = (s?: string) => !!s && PROD_RX.test(s) && !/no-?prod|non-?prod/i.test(s)
+
+// ---------- Options (plugin userConfig; /config or settings.json pluginConfigs.cockpit.options) ----------
+
+const PALETTES = {
+  dark: {
+    PANE_BG: '#262626', ACCENT: '#f5a97f', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
+    USER_BG: '#1a1a20', CODE_BG: '#16161c', CODE_BAR: '#98c379', TURN_RULE: '#2c2c36',
+    HEAD_BG: '#25253a', ZEBRA_BG: '#15151b', TABLE_BORDER: '#4a4a5c',
+  },
+  light: {
+    PANE_BG: '#ececec', ACCENT: '#c2410c', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',
+    USER_BG: '#eef2f7', CODE_BG: '#f4f4f5', CODE_BAR: '#16a34a', TURN_RULE: '#d4d4d8',
+    HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa',
+  },
+}
+
+// option name of a section -> id used for its folded state
+const SECTION_IDS: Record<string, string> = {
+  where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
+  actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file',
+}
+let HIDDEN = new Set<string>()
+let OPEN_ON_START = true
+
+function applyOptions(options: Readonly<Record<string, unknown>>) {
+  const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
+  ;({ PANE_BG, ACCENT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER } = pal)
+  const width = Number(options.proseWidth)
+  PROSE_MAX = Number.isFinite(width) && width >= 40 ? Math.round(width) : 100
+  try {
+    PROD_RX = new RegExp(typeof options.prodPattern === 'string' && options.prodPattern !== '' ? options.prodPattern : 'prod', 'i')
+  } catch {
+    PROD_RX = /prod/i
+  }
+  HIDDEN = new Set(
+    String(options.hiddenSections ?? '')
+      .split(/[\s,]+/)
+      .map(x => SECTION_IDS[x.trim().toLowerCase()])
+      .filter((x): x is string => x !== undefined),
+  )
+  OPEN_ON_START = options.openOnStart !== false
+}
 
 const kTok = (n?: number) => (n === undefined ? '?' : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`)
 const short = (p: string) => p.replace(/\\/g, '/').split('/').slice(-2).join('/')
@@ -1000,7 +1043,9 @@ async function openCommand($: EngineInterface) {
   return { text: r.isPlaced ? 'Panel open.' : `Panel not shown: ${r.reason ?? 'terminal too narrow'}` }
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  applyOptions(options)
+
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'cockpit', description: 'Open the cockpit side panel' })
     await $.command.register({ name: 'sidebar', description: 'Open the cockpit side panel (alias of /cockpit)' })
@@ -1034,7 +1079,7 @@ export const register: Register = on => {
     $.clock.every(300_000, () => {
       void refreshReminders($)
     })
-    if (isOn) {
+    if (isOn && OPEN_ON_START) {
       void openPane($)
     }
 
@@ -1208,6 +1253,7 @@ export const register: Register = on => {
       .flatMap(p => (p.code === undefined && p.table === undefined && p.label === undefined ? splitLists(p.text) : [p]))
     const nTables = pieces.filter(p => p.table !== undefined).length
     let k = 0
+    let kc = 0
     // usable chat width: viewport minus bullet, margin toward the sidebar and some breathing room
     const maxW = Math.max(30, (e.viewport?.columns ?? 100) - 2 - GAP - 2)
     const proseW = Math.min(maxW, PROSE_MAX)
@@ -1223,13 +1269,26 @@ export const register: Register = on => {
             // blank line between one piece and the next, but not at the top nor between a heading and its list
             const top = prev === undefined || prev.label !== undefined ? 0 : 1
             if (p.code !== undefined) {
+              const src = p.code
+              const ci = ++kc
               return (
-                <Box flexDirection="row" marginY={1}>
-                  <Box width={1} backgroundColor={CODE_BAR} />
-                  <Box flexDirection="column" flexGrow={1} backgroundColor={CODE_BG} paddingX={1}>
-                    {p.lang !== '' && <Text dimColor>{p.lang}</Text>}
-                    <Code source={p.code} language={p.lang || undefined} />
+                <Box flexDirection="column" marginY={1}>
+                  <Box flexDirection="row">
+                    <Box width={1} backgroundColor={CODE_BAR} />
+                    <Box flexDirection="column" flexGrow={1} backgroundColor={CODE_BG} paddingX={1}>
+                      {p.lang !== '' && <Text dimColor>{p.lang}</Text>}
+                      <Code source={src} language={p.lang || undefined} />
+                    </Box>
                   </Box>
+                  <Button
+                    key={`code-${ci}`}
+                    onPress={async press => {
+                      const r = await $.ui.copy({ text: src, surface: press.surface })
+                      $.ui.toast(r.isCopied ? `Code copied (${src.split('\n').length} lines)` : 'Copy failed')
+                    }}
+                  >
+                    <Text color={BLUE}>⧉ Copy code</Text>
+                  </Button>
                 </Box>
               )
             }
@@ -1427,6 +1486,9 @@ export const register: Register = on => {
     const closed = await read($, collapsed)
     const now = await $.clock.now()
     const section = (id: string, title: string, color: string, count: number | undefined, body: RenderNode) => {
+      if (HIDDEN.has(id)) {
+        return null
+      }
       const isClosed = closed.includes(id)
 
       return (

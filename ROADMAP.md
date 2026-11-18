@@ -8,7 +8,7 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 - [x] **Optional integrations documented**: reminders file, mode skills, production highlight.
 - [x] **Screenshots** in the README: panel, headings and lists, tables, code.
 - [ ] **GIF** of the panel in use and of the two-line bar in a narrow terminal.
-- [ ] **Configurable options** (plugin `userConfig`): colours, prose width, visible sections, the rule that spots production (today: a name containing `prod`).
+- [x] **Configurable options** (plugin `userConfig`): palette, prose width, hidden sections, production pattern, open on start.
 - [x] **Rename the plugin** `sidebar` -> `cockpit` (`/sidebar` kept as an alias).
 - [x] **Copy table on macOS and Linux**: `osascript` on macOS, `wl-copy`/`xclip` on Linux (to be tested on real machines).
 - [ ] **Tests** with `claude plugin test` for the pure functions: `splitCode`, `splitTables`, `splitLabels`, `splitLists`, `tableGrid`, `findWrite`, `mcpWrite`.
@@ -28,14 +28,14 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 
 ## Chat
 
-- [ ] **`⧉ Copy code`** under every code block, like tables.
+- [x] **`⧉ Copy code`** under every code block, like tables.
 - [ ] **Markdown headings** (`##`, `###`) with the same style as heading lines.
 - [ ] **Quotes and callouts** (`> Note`, `> Warning`) in a coloured box.
 - [ ] **Diffs** with coloured `+`/`-` lines outside ```diff blocks too.
 - [ ] **Tables**: CSV export, sort by column with a click.
 - [ ] **Long tool output** folded, one click to expand.
 - [ ] **Send time** next to each prompt.
-- [ ] **Light palette** for terminals with a light background.
+- [x] **Light palette** for terminals with a light background (`palette: light`).
 - [ ] **Image preview** of pasted images in the panel, on terminals that draw pictures (kitty, Ghostty, iTerm2; not Windows Terminal).
 
 ## Done
