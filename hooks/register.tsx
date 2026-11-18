@@ -660,7 +660,8 @@ function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
   ;({ PANE_BG, ACCENT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER } = pal)
   const width = Number(options.proseWidth)
-  PROSE_MAX = Number.isFinite(width) && width >= 40 ? Math.round(width) : 100
+  // 0 (default) = the whole chat width; 40 or more = wrap reply text at that column
+  PROSE_MAX = Number.isFinite(width) && width >= 40 ? Math.round(width) : Number.POSITIVE_INFINITY
   try {
     PROD_RX = new RegExp(typeof options.prodPattern === 'string' && options.prodPattern !== '' ? options.prodPattern : 'prod', 'i')
   } catch {

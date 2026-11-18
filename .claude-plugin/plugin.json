@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -17,8 +17,8 @@
     "proseWidth": {
       "type": "number",
       "title": "Text width",
-      "description": "Maximum width of reply text, in columns (40 or more)",
-      "default": 100
+      "description": "Wrap reply text at this column (40 or more); 0 uses the whole chat width",
+      "default": 0
     },
     "hiddenSections": {
       "type": "string",

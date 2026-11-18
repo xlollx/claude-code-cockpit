@@ -31,7 +31,7 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 |---|---|
 | Your prompts | box with a blue bar and dark background |
 | `/command` output | orange bar (red on error) |
-| Replies | short heading lines in bold orange, lists drawn with coloured numbers and a blank line between items that have sub-items, prose wrapped at 100 columns |
+| Replies | short heading lines in bold orange, lists drawn with coloured numbers and a blank line between items that have sub-items, prose across the chat width (or wrapped at `proseWidth`) |
 | Code blocks | box with a green bar, language name, syntax highlighting, and `⧉ Copy code` under it |
 | Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat |
 | `⧉ Copy table` | under every table: copies it as HTML, so Teams, Outlook, Word and Excel paste a real table. Windows: HTML + tab-separated text through PowerShell. macOS: HTML + text through `osascript`. Linux: HTML through `wl-copy` or `xclip` (macOS and Linux not tested yet) |
@@ -66,7 +66,7 @@ Set them in `/config` (the plugin's rows) or in `settings.json` under `pluginCon
 | Option | Default | What it does |
 |---|---|---|
 | `palette` | `dark` | `light` for terminals with a light background |
-| `proseWidth` | `100` | maximum width of reply text, in columns (40 or more) |
+| `proseWidth` | `0` | wrap reply text at this column (40 or more, e.g. `100` for easier reading); `0` uses the whole chat width |
 | `hiddenSections` | empty | panel sections to hide, comma separated: `where`, `model`, `modes`, `context`, `pr`, `tasks`, `actions`, `writes`, `reminders`, `files` |
 | `prodPattern` | `prod` | regular expression that marks a subscription, kubectl context or branch as production (`noprod`/`nonprod` never match) |
 | `openOnStart` | `true` | open the panel when a session starts |
