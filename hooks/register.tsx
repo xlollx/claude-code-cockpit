@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { FileEdit, Reminder, Usage, Where, WriteCmd } from '../types'
+import type { FileEdit, ModelChoice, Reminder, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Sessione'
@@ -27,6 +27,7 @@ async function effortFromSettings($: EngineInterface) {
 
 const collapsed = atom({ plugin: 'sidebar', key: 'collapsed' } as const, [], { shape: 'collapsed-1' })
 const modes = atom({ plugin: 'sidebar', key: 'modes' } as const, [], { shape: 'modes-1' })
+const models = atom({ plugin: 'sidebar', key: 'models' } as const, [] as ModelChoice[], { shape: 'models-1' })
 
 // Skill che restano accese per la sessione, con la frase che le spegne
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -65,9 +66,62 @@ async function toggleSection($: EngineInterface, id: string) {
   await $.store.set('collapsed', next)
 }
 
-// Menu a tendina: /model <alias> e /effort <livello> applicano subito, senza selettore
-const MODELS = ['fable', 'opus', 'sonnet', 'haiku'] as const
+// Pulsanti: /model <alias o id> e /effort <livello> applicano subito, senza selettore.
+// Le famiglie con alias puntano sempre all'ultima versione; le altre (es. mythos) si
+// aggiungono da sole appena compaiono in uso (turn.step, anche dei subagent) o nel
+// campo `model:` di un agent in ~/.claude/agents, e restano fra le sessioni ($.store)
+const ALIASES = ['fable', 'opus', 'sonnet', 'haiku']
+const TIER_ORDER = ['fable', 'mythos', 'opus', 'sonnet', 'haiku']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
+const familyOf = (id: string) => /^claude-([a-z]+)/.exec(id)?.[1] ?? (ALIASES.includes(id) ? id : undefined)
+
+function sortModels(list: ModelChoice[]) {
+  const rank = (f: string) => {
+    const i = TIER_ORDER.indexOf(f)
+    return i === -1 ? TIER_ORDER.length : i
+  }
+  return [...list].sort((a, b) => rank(a.family) - rank(b.family) || a.family.localeCompare(b.family))
+}
+
+// Registra un modello visto: famiglia nuova = pulsante nuovo; per le famiglie senza alias
+// tiene l'id piu' recente (es. claude-mythos-5-1 -> claude-mythos-5-2)
+async function learnModel($: EngineInterface, id: string) {
+  const family = familyOf(id)
+  if (family === undefined || ALIASES.includes(family)) {
+    return
+  }
+  const cur = await read($, models)
+  const old = cur.find(m => m.family === family)
+  if (old !== undefined && old.id.localeCompare(id, undefined, { numeric: true }) >= 0) {
+    return
+  }
+  const next = sortModels([...cur.filter(m => m.family !== family), { family, id }])
+  await update($, models, () => next)
+  await $.store.set('models', next)
+}
+
+async function loadModels($: EngineInterface) {
+  const saved = (await $.store.get('models')) as ModelChoice[] | undefined
+  const base = ALIASES.map(a => ({ family: a, id: a }))
+  const extra = Array.isArray(saved) ? saved.filter(m => !ALIASES.includes(m.family)) : []
+  await update($, models, () => sortModels([...base, ...extra]))
+  // modelli fissati negli agent personali (frontmatter `model: claude-...`)
+  const dir = `${await home($)}/.claude/agents`
+  try {
+    for (const f of await $.fs.list(dir)) {
+      if (!f.name.endsWith('.md')) {
+        continue
+      }
+      const id = /^model:\s*(claude-[\w.-]+)/m.exec((await readText($, `${dir}/${f.name}`)) ?? '')?.[1]
+      if (id !== undefined) {
+        await learnModel($, id)
+      }
+    }
+  } catch {
+    // nessuna cartella agents
+  }
+}
 
 async function runOrFill($: EngineInterface, command: string, args: string) {
   try {
@@ -572,6 +626,7 @@ export const register: Register = on => {
     await update($, effort, cur => cur ?? initial)
     const savedCollapsed = (await $.store.get('collapsed')) as string[] | undefined
     await update($, collapsed, () => (Array.isArray(savedCollapsed) ? savedCollapsed : []))
+    await loadModels($)
     const ran = await next(e)
     await refreshAll($)
     // az account set / kubectl config use-context fatti fuori da qui: ricontrollo ogni 30 s
@@ -637,6 +692,7 @@ export const register: Register = on => {
 
   // effort reale di ogni richiesta del loop principale (i subagent hanno agentId)
   on('turn.step', async function* ($, e, next) {
+    void learnModel($, e.model)
     if (e.agentId === undefined && e.effort !== undefined) {
       const level = String(e.effort)
       await update($, effort, () => level)
@@ -966,8 +1022,12 @@ export const register: Register = on => {
       )
     }
     const fam = /^claude-([a-z]+)/.exec(u?.model ?? '')?.[1]
-    const modelOptions = MODELS.map(m => ({ value: m, label: m.charAt(0).toUpperCase() + m.slice(1) }))
-    const modelValue = fam !== undefined && (MODELS as readonly string[]).includes(fam) ? fam : undefined
+    const modelOptions = (await read($, models)).map(m => ({
+      value: m.id,
+      family: m.family,
+      label: m.family.charAt(0).toUpperCase() + m.family.slice(1),
+    }))
+    const modelValue = fam
     const effortValue = eff !== null && (EFFORTS as readonly string[]).includes(eff) ? eff : undefined
 
     return (
@@ -1010,13 +1070,20 @@ export const register: Register = on => {
           <Box flexDirection="column">
             {/* pulsanti affiancati invece di un Select: il Select prende la tastiera e si chiude solo con Esc */}
             <Box flexDirection="row" flexWrap="wrap">
-              {modelOptions.map(o => (
-                <Button key={`m-${o.value}`} plain onPress={() => void setModel($, o.value)}>
-                  <Text color={o.value === modelValue ? BLUE : undefined} bold={o.value === modelValue} inverse={o.value === modelValue} dimColor={o.value !== modelValue}>
-                    {` ${o.label} `}
-                  </Text>
-                </Button>
-              ))}
+              {modelOptions.map(o => {
+                const sel = o.family === modelValue
+                return (
+                  <Button key={`m-${o.family}`} plain onPress={() => void setModel($, o.value)}>
+                    <Text color={sel ? BLUE : undefined} bold={sel} inverse={sel} dimColor={!sel}>
+                      {` ${o.label} `}
+                    </Text>
+                  </Button>
+                )
+              })}
+              {/* selettore di Claude Code: elenco completo e sempre aggiornato */}
+              <Button key="m-more" plain onPress={() => void openPicker($, 'model')}>
+                <Text dimColor>{' … '}</Text>
+              </Button>
             </Box>
             <Box flexDirection="row" flexWrap="wrap">
               {EFFORTS.map(x => (

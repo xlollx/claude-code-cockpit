@@ -1,4 +1,4 @@
-# ClaudeSidebar
+# claude-code-cockpit
 
 Mod per Claude Code (terminale) che aggiunge un pannello laterale operativo e rende la chat piu' leggibile, con un look ispirato a OpenCode.
 
@@ -9,7 +9,7 @@ Mod per Claude Code (terminale) che aggiunge un pannello laterale operativo e re
 | Sezione | Contenuto |
 |---|---|
 | Dove operi | cartella, subscription e tenant az, contesto e namespace kubectl, branch git con modifiche ● e commit ↑ da pushare / ↓ da scaricare (rossi se prod) |
-| Modello | pulsanti `Fable Opus Sonnet Haiku` e `low medium high xhigh max`: un clic applica subito |
+| Modello | un pulsante per famiglia (`Fable Mythos Opus Sonnet Haiku`...) e `low medium high xhigh max`: un clic applica subito. Le famiglie nuove si aggiungono da sole appena compaiono in uso o nel `model:` di un agent in `~/.claude/agents`; `…` apre il selettore completo di Claude Code |
 | Modalità attive | `newstyle` e le skill "a modalita'" accese nella sessione (`i-have-adhd`, `caveman`, `ponytail` + livello); `✕` scrive nel prompt la frase che la spegne |
 | Contesto | barra di riempimento, token, limiti 5h/7g, durata della sessione; avviso all'80% |
 | Azioni rapide | `Compatta`, `Contesto`, `Copia cartella` |
@@ -38,13 +38,13 @@ Mod per Claude Code (terminale) che aggiunge un pannello laterale operativo e re
 Al prompt di una sessione di Claude Code nel terminale:
 
 ```
-/plugin install sidebar --marketplace xlollx/ClaudeSidebar
+/plugin install sidebar --marketplace xlollx/claude-code-cockpit
 ```
 
 Da una shell:
 
 ```
-claude plugin install sidebar --marketplace xlollx/ClaudeSidebar
+claude plugin install sidebar --marketplace xlollx/claude-code-cockpit
 ```
 
 Finche' il repository e' privato, l'installazione funziona solo per chi lo puo' leggere su GitHub e ha gia' una credenziale git per github.com sulla propria macchina.

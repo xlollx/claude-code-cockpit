@@ -30,6 +30,9 @@ export type WriteCmd = { at: number; text: string; ok: boolean }
 
 export type Reminder = { due: string; title: string }
 
+/** Un modello sceglibile: famiglia (fable, mythos...) e cosa passare a /model (alias o id) */
+export type ModelChoice = { family: string; id: string }
+
 declare module 'claude-code' {
   interface PluginState {
     sidebar: {
@@ -47,6 +50,8 @@ declare module 'claude-code' {
       collapsed: Shaped<string[]>
       /** skill "a modalita'" accese in questa sessione (es. "i-have-adhd", "ponytail full") */
       modes: Shaped<string[]>
+      /** modelli mostrati in "Modello": alias noti + famiglie viste in uso o negli agent */
+      models: Shaped<ModelChoice[]>
     }
   }
 }
