@@ -2,6 +2,8 @@
 
 A Claude Code mod for the terminal: an operational side panel that shows where you are and what you changed, and a chat that is easier to read. The look is inspired by OpenCode.
 
+![Chat with a table and a code block, and the side panel](docs/chat-and-panel.png)
+
 ## What it does
 
 ### Side panel (`/cockpit`, alias `/sidebar`)
@@ -59,13 +61,14 @@ Clone the repository and load the folder in every session with `CLAUDE_CODE_PLUG
 
 None of these is required; each section stays hidden or empty when its source is missing.
 
-- **Reminders**: put a JSON list in `~/.claude/reminders.json` and the panel shows the open ones due within 7 days (red when overdue):
+- **Reminders**: put a JSON list in `~/.claude/reminders.json` (or the file named by `COCKPIT_REMINDERS_FILE`) and the panel shows the open ones due within 7 days (red when overdue):
 
   ```json
   [{ "id": "renew-cert", "due": "2026-12-01T09:00", "title": "Renew the TLS certificate", "done": false }]
   ```
 
 - **Active modes** follows these skills when they are installed: `i-have-adhd`, `caveman` (with `ultracave` and `megacave`), `ponytail` (with its level). A skill named `panic`, run without arguments, clears the list. Other skills are not tracked.
+- **Azure and Kubernetes** are read from `AZURE_CONFIG_DIR` (default `~/.azure`) and `KUBECONFIG` (default `~/.kube/config`): files only, no CLI call.
 - **Production highlight**: subscription, kubectl context and branch turn red when the name contains `prod` (but not `noprod` or `nonprod`), and `main`/`master` turn yellow.
 
 ## Extras

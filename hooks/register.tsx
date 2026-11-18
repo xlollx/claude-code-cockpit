@@ -693,7 +693,7 @@ async function refreshWhere($: EngineInterface) {
   const cwd = (await $.session.cwd()).replace(/\\/g, '/')
   w.cwd = (h && cwd.toLowerCase().startsWith(h.toLowerCase()) ? '~' + cwd.slice(h.length) : cwd).replace(/\//g, '\\')
 
-  const az = await readText($, `${h}/.azure/azureProfile.json`)
+  const az = await readText($, `${(await $.env.get('AZURE_CONFIG_DIR')) ?? `${h}/.azure`}/azureProfile.json`)
   if (az) {
     try {
       const sub = (JSON.parse(az).subscriptions ?? []).find((s: { isDefault?: boolean }) => s.isDefault)
@@ -738,7 +738,7 @@ async function refreshWhere($: EngineInterface) {
 }
 
 async function refreshReminders($: EngineInterface) {
-  const text = await readText($, `${await home($)}/.claude/reminders.json`)
+  const text = await readText($, await remindersPath($))
   let list: Reminder[] = []
   if (text) {
     try {
@@ -766,9 +766,14 @@ function localStamp(ms: number) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// Reminders file: COCKPIT_REMINDERS_FILE, or ~/.claude/reminders.json
+async function remindersPath($: EngineInterface) {
+  return (await $.env.get('COCKPIT_REMINDERS_FILE')) ?? `${await home($)}/.claude/reminders.json`
+}
+
 // Marks a reminder done or moves it one day later, in ~/.claude/reminders.json
 async function changeReminder($: EngineInterface, id: string, action: 'done' | 'snooze') {
-  const path = `${await home($)}/.claude/reminders.json`
+  const path = await remindersPath($)
   try {
     const list = JSON.parse((await readText($, path)) ?? '[]') as { id?: string; due: string; title: string; done?: boolean }[]
     const item = list.find(r => (r.id ?? `${r.due}|${r.title}`) === id)
