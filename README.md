@@ -2,7 +2,7 @@
 
 A Claude Code mod for the terminal: an operational side panel that shows where you are and what you changed, and a chat that is easier to read. The look is inspired by OpenCode.
 
-![Chat with a table and a code block, and the side panel](docs/chat-and-panel.png)
+![The side panel next to a reply with a heading and a numbered list](docs/panel-and-plan.png)
 
 ## What it does
 
@@ -24,6 +24,8 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 - In a wide terminal the panel sits on the side; in a narrow one it becomes a two-line bar above the prompt.
 
 ### Chat
+
+![Table with coloured header and copy button, code block, end-of-turn line](docs/chat-and-panel.png)
 
 | Element | Style |
 |---|---|

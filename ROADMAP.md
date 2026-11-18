@@ -6,7 +6,8 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 
 - [x] **English interface**: panel, toasts, buttons, README.
 - [x] **Optional integrations documented**: reminders file, mode skills, production highlight.
-- [ ] **Screenshots and a GIF** in the README: wide panel, two-line bar, tables, code.
+- [x] **Screenshots** in the README: panel, headings and lists, tables, code.
+- [ ] **GIF** of the panel in use and of the two-line bar in a narrow terminal.
 - [ ] **Configurable options** (plugin `userConfig`): colours, prose width, visible sections, the rule that spots production (today: a name containing `prod`).
 - [x] **Rename the plugin** `sidebar` -> `cockpit` (`/sidebar` kept as an alias).
 - [x] **Copy table on macOS and Linux**: `osascript` on macOS, `wl-copy`/`xclip` on Linux (to be tested on real machines).
