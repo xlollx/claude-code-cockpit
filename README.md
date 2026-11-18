@@ -1,75 +1,77 @@
 # claude-code-cockpit
 
-Mod per Claude Code (terminale) che aggiunge un pannello laterale operativo e rende la chat piu' leggibile, con un look ispirato a OpenCode.
+A Claude Code mod for the terminal: an operational side panel that shows where you are and what you changed, and a chat that is easier to read. The look is inspired by OpenCode.
 
-## Cosa fa
+## What it does
 
-### Sidebar (`/sidebar`)
+### Side panel (`/sidebar`)
 
-| Sezione | Contenuto |
+| Section | Shows |
 |---|---|
-| Dove operi | cartella, subscription e tenant az, contesto e namespace kubectl, branch git con modifiche ● e commit ↑ da pushare / ↓ da scaricare (rossi se prod) |
-| Modello | un pulsante per famiglia (`Fable Mythos Opus Sonnet Haiku`...) e `low medium high xhigh max`: un clic applica subito. Le famiglie nuove si aggiungono da sole appena compaiono in uso o nel `model:` di un agent in `~/.claude/agents`; `…` apre il selettore completo di Claude Code |
-| Modalità attive | `newstyle` e le skill "a modalita'" accese nella sessione (`i-have-adhd`, `caveman`, `ponytail` + livello) e `ultracode` se l'ultimo prompt lo contiene; `✕` scrive nel prompt la frase che spegne la skill |
-| Contesto | barra di riempimento, token, limiti 5h/7g, durata della sessione; avviso all'80% |
-| Azioni rapide | `Compatta`, `Contesto`, `Copia cartella` |
-| Comandi di scrittura | apply/destroy/import, az create/delete/set, kubectl apply/delete, helm, flux, git push, REST in scrittura |
-| Promemoria / File | scadenze entro 7 giorni da `~/.claude/reminders.json`, file modificati nella sessione |
+| Where you are | folder, Azure subscription and tenant, kubectl context and namespace, git branch with uncommitted changes ● and commits ↑ to push / ↓ to pull (red when it looks like production) |
+| Model | one button per model family (`Fable`, `Mythos`, `Opus`, `Sonnet`, `Haiku`...) and `low medium high xhigh max`: one click applies it. New families appear by themselves as soon as they are used, or when an agent in `~/.claude/agents` names them in `model:`; `…` opens Claude Code's full model picker |
+| Active modes | `newstyle` and the session's mode skills (`i-have-adhd`, `caveman`, `ponytail` + level), plus `ultracode` when the last prompt contains it; `✕` puts the phrase that turns a skill off into the prompt |
+| Context | fill bar, tokens, 5-hour and 7-day limits, session duration; a warning at 80% |
+| Quick actions | `Compact`, `Context`, `Copy path` |
+| Write commands | commands with effects outside your machine: `tofu`/`terraform apply`, `az ... create/delete/set`, `kubectl apply/delete`, `helm`, `flux`, `git push`, `gh pr create`, REST writes, and MCP tools that write (kubectl_apply, repo_create_branch...) |
+| Reminders / Files | reminders due within 7 days from `~/.claude/reminders.json`, files edited in the session |
 
-- Ogni sezione si comprime con un clic sul titolo (stato ricordato fra sessioni).
-- A finestra larga il pannello sta a lato; a finestra stretta diventa una barra di 2 righe sopra il prompt.
+- Click a section title to fold or unfold it (remembered across sessions).
+- In a wide terminal the panel sits on the side; in a narrow one it becomes a two-line bar above the prompt.
 
-### Stile della chat
+### Chat
 
-| Elemento | Stile |
+| Element | Style |
 |---|---|
-| Prompt dell'utente | riquadro con barra blu e fondo scuro |
-| Output dei comandi `/` | barra arancione (rossa se in errore) |
-| Testo delle risposte | titoli di sezione in grassetto arancione, elenchi con numeri colorati e spazio fra i punti con sottopunti, prosa larga al massimo 100 colonne |
-| Blocchi di codice | riquadro con barra verde, nome del linguaggio, sintassi colorata |
-| Tabelle | bordo esterno, intestazione colorata, righe alternate; colonne che si stringono e vanno a capo se la tabella e' piu' larga della chat |
-| `⧉ Copia tabella` | sotto ogni tabella: copia negli appunti in HTML (Teams/Outlook incollano una tabella vera) e a tabulazioni (Excel). Solo Windows |
-| Fine turno | `▣ Opus 5.5 · high · 40s` e una linea sottile che separa un turno dal successivo |
+| Your prompts | box with a blue bar and dark background |
+| `/command` output | orange bar (red on error) |
+| Replies | short heading lines in bold orange, lists drawn with coloured numbers and a blank line between items that have sub-items, prose wrapped at 100 columns |
+| Code blocks | box with a green bar, language name, syntax highlighting |
+| Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat |
+| `⧉ Copy table` | under every table: copies it as HTML (Teams and Outlook paste a real table) and as tab-separated text (Excel). Windows only for now |
+| End of turn | `▣ Opus 5.5 · high · 40s` and a thin line between one turn and the next |
 
-`/newstyle on|off` accende o spegne tutto lo stile (stato ricordato fra sessioni).
+`/newstyle on|off` turns the whole look on or off (remembered across sessions).
 
-## Installazione
+## Install
 
-Al prompt di una sessione di Claude Code nel terminale:
+At the prompt of a Claude Code terminal session:
 
 ```
 /plugin install sidebar --marketplace xlollx/claude-code-cockpit
 ```
 
-Da una shell:
+From a shell:
 
 ```
 claude plugin install sidebar --marketplace xlollx/claude-code-cockpit
 ```
 
-Finche' il repository e' privato, l'installazione funziona solo per chi lo puo' leggere su GitHub e ha gia' una credenziale git per github.com sulla propria macchina.
+Then open the panel with `/sidebar`.
 
-### Sviluppo
+### Development
 
-Clonare il repository e caricare la cartella in ogni sessione con la variabile `CLAUDE_CODE_PLUGIN_DIRS` nel `settings.json` utente (`env`), oppure `claude --plugin-dir <cartella>`. Dopo una modifica: `claude plugin validate <cartella>`. `tsconfig.json` estende i tipi che Claude Code genera in `.claude-plugin/types/` al primo caricamento.
+Clone the repository and load the folder in every session with `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of your user `settings.json`, or start Claude Code with `claude --plugin-dir <folder>`. After a change run `claude plugin validate <folder>`. `tsconfig.json` extends the types Claude Code writes into `.claude-plugin/types/` the first time it loads the mod.
 
-## Extra
+## Extras
 
-`extras/windows-terminal-ember-dark.json`: schema colori "Ember Dark" per Windows Terminal (da incollare in `schemes` del `settings.json` di Windows Terminal). In Claude Code, `/theme` -> "Dark mode (ANSI colors only)" usa la palette del terminale.
+`extras/windows-terminal-ember-dark.json`: the "Ember Dark" colour scheme for Windows Terminal (paste it into `schemes` in Windows Terminal's `settings.json`). In Claude Code, `/theme` -> "Dark mode (ANSI colors only)" uses the terminal palette.
 
-## Limiti di Claude Code
+## Known limits
 
-- La barra di scrittura e l'altezza del pannello agganciato non sono modificabili da una mod.
-- Le righe `!` della shell e la riga `❯ /comando` le disegna Claude Code: non si colorano.
-- Lo stato dei server MCP non e' esposto alle mod.
-- Un menu a tendina (`Select`) tiene la tastiera finche' non si preme Esc: per questo modello ed effort sono pulsanti.
-- Il markdown di Claude Code ignora le righe vuote dentro un elenco: per questo gli elenchi li disegna la mod.
-- Le modalita' accese prima del caricamento della mod non risultano finche' non si rilancia la skill.
+These come from what Claude Code lets a mod change:
+
+- The prompt box and the height of the docked panel cannot be restyled.
+- `!` shell rows and the `❯ /command` row are drawn by Claude Code and keep their default look.
+- MCP server status is not available to mods.
+- A dropdown (`Select`) keeps the keyboard until Esc, so model and effort are buttons.
+- Claude Code's markdown ignores blank lines inside lists, so the mod draws lists itself.
+- Modes turned on before the mod loaded are not shown until you run the skill again.
 
 ## Roadmap
 
-Idee e miglioramenti previsti: [ROADMAP.md](ROADMAP.md).
+Planned ideas and improvements: [ROADMAP.md](ROADMAP.md).
 
-## Licenza
+## License
 
-AGPL-3.0, vedi [LICENSE](LICENSE).
+AGPL-3.0, see [LICENSE](LICENSE).

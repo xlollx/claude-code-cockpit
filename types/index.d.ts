@@ -5,13 +5,13 @@ export type Usage = {
   percent?: number
   usd?: number
   limits: { kind: string; percentUsed: number }[]
-  /** inizio della sessione (ms), per la durata */
+  /** session start (ms), for the duration */
   startedAt?: number
 }
 
 export type FileEdit = { path: string; edits: number }
 
-/** Dove sta operando la sessione: letto da ~/.azure, ~/.kube/config e dal repo git */
+/** Where the session is operating: read from ~/.azure, ~/.kube/config and the git repo */
 export type Where = {
   cwd?: string
   azSub?: string
@@ -20,17 +20,17 @@ export type Where = {
   kubeNs?: string
   branch?: string
   dirty?: number
-  /** commit locali da pushare / remoti da scaricare rispetto all'upstream */
+  /** local commits to push / remote commits to pull relative to the upstream */
   ahead?: number
   behind?: number
 }
 
-/** Un comando con effetti all'esterno (apply, delete, push...) eseguito in sessione */
+/** A command with effects outside the machine (apply, delete, push...) run in the session */
 export type WriteCmd = { at: number; text: string; ok: boolean }
 
 export type Reminder = { due: string; title: string }
 
-/** Un modello sceglibile: famiglia (fable, mythos...) e cosa passare a /model (alias o id) */
+/** A selectable model: family (fable, mythos...) and what to pass to /model (alias or id) */
 export type ModelChoice = { family: string; id: string }
 
 declare module 'claude-code' {
@@ -42,15 +42,15 @@ declare module 'claude-code' {
       writes: Shaped<WriteCmd[]>
       reminders: Shaped<Reminder[]>
       warned: Shaped<boolean>
-      /** /newstyle on|off: copia di sessione del valore tenuto in $.store */
+      /** /newstyle on|off: session copy of the value kept in $.store */
       enabled: Shaped<boolean>
-      /** effort dell'ultima richiesta del loop principale (o dai settings prima della prima) */
+      /** effort of the last main-loop request (or from the settings before the first) */
       effort: Shaped<string | null>
-      /** id delle sezioni compresse (copia di sessione del valore in $.store) */
+      /** ids of the collapsed sections (session copy of the value in $.store) */
       collapsed: Shaped<string[]>
-      /** skill "a modalita'" accese in questa sessione (es. "i-have-adhd", "ponytail full") */
+      /** "mode" skills turned on in this session (e.g. "i-have-adhd", "ponytail full") */
       modes: Shaped<string[]>
-      /** modelli mostrati in "Modello": alias noti + famiglie viste in uso o negli agent */
+      /** models shown in "Modello": known aliases + families seen in use or in agents */
       models: Shaped<ModelChoice[]>
     }
   }

@@ -1,43 +1,45 @@
 # Roadmap
 
-Idee di miglioramento, da fare a tempo perso. Ordine indicativo: in alto quello che serve prima di rendere pubblico il repository.
+Ideas for improvements, worked on in spare time. Rough order: the top section is what helps most for a first public release.
 
-## Prima della pubblicazione
+## Before the first public release
 
-- [ ] **Interfaccia in inglese** (con l'italiano come opzione): testi della sidebar, toast, pulsanti, README.
-- [ ] **Opzioni configurabili** (`userConfig` del plugin): colori, larghezza massima della prosa, sezioni visibili, regola che riconosce gli ambienti di produzione (oggi: nome che contiene `prod`).
-- [ ] **Nome del plugin** `sidebar` -> `cockpit`, con migrazione dello stato salvato (sezioni compresse, modelli visti, `/newstyle`).
-- [ ] **Copia tabella su macOS e Linux**: oggi solo Windows (`powershell.exe`); su macOS `osascript`/`pbcopy`, su Linux `xclip -t text/html` o `wl-copy`.
-- [ ] **Screenshot e GIF** nel README: sidebar larga, barra a 2 righe, tabelle, codice.
-- [ ] **Test** con `claude plugin test` per le funzioni pure: `splitCode`, `splitTables`, `splitLabels`, `splitLists`, `tableGrid`.
+- [x] **English interface**: panel, toasts, buttons, README.
+- [ ] **Screenshots and a GIF** in the README: wide panel, two-line bar, tables, code.
+- [ ] **Configurable options** (plugin `userConfig`): colours, prose width, visible sections, the rule that spots production (today: a name containing `prod`).
+- [ ] **Rename the plugin** `sidebar` -> `cockpit`, migrating saved state (folded sections, known models, `/newstyle`).
+- [ ] **Copy table on macOS and Linux**: today Windows only (`powershell.exe`); `osascript`/`pbcopy` on macOS, `xclip -t text/html` or `wl-copy` on Linux.
+- [ ] **Tests** with `claude plugin test` for the pure functions: `splitCode`, `splitTables`, `splitLabels`, `splitLists`, `tableGrid`, `findWrite`, `mcpWrite`.
+- [ ] **Italian interface** as an option, next to English.
 
-## Sidebar
+## Side panel
 
-- [ ] **Altri cloud e contesti**: profilo/regione AWS, progetto GCP, contesto Docker, workspace OpenTofu/Terraform.
-- [ ] **Stato della PR del branch corrente**: numero, review, esito della CI (GitHub e Azure DevOps).
-- [ ] **Avanzamento dei task**: la lista di Claude (todo/task) con quelli completati, in corso e da fare.
-- [ ] **Subagent e comandi in background** in esecuzione, con durata.
-- [ ] **Andamento del contesto**: piccolo grafico del riempimento nel tempo, per capire quando compattare.
-- [ ] **File modificati cliccabili**: copia percorso o apertura nell'editor.
-- [ ] **Comandi di scrittura cliccabili**: copia del comando completo.
-- [ ] **Promemoria dalla sidebar**: segnare come fatto, rimandare di un giorno.
-- [ ] **Stato dei server MCP** appena l'API delle mod lo espone (oggi non disponibile).
+- [ ] **More clouds and contexts**: AWS profile/region, GCP project, Docker context, OpenTofu/Terraform workspace.
+- [ ] **Pull request of the current branch**: number, reviews, CI result (GitHub and Azure DevOps).
+- [ ] **Task progress**: Claude's todo/task list with done, in progress and pending items.
+- [ ] **Running subagents and background commands**, with their duration.
+- [ ] **Context over time**: a small sparkline of how full the context is, to know when to compact.
+- [ ] **Clickable edited files**: copy the path or open it in the editor.
+- [ ] **Clickable write commands**: copy the full command.
+- [ ] **Reminders from the panel**: mark as done, snooze one day.
+- [ ] **MCP server status** as soon as the mod API exposes it (not available today).
 
 ## Chat
 
-- [ ] **Pulsante `⧉ Copia codice`** sotto ogni blocco di codice, come per le tabelle.
-- [ ] **Titoli markdown** (`##`, `###`) con lo stesso stile delle righe-titolo.
-- [ ] **Citazioni e avvisi** (`> Nota`, `> Attenzione`) in un riquadro colorato.
-- [ ] **Diff** con righe `+`/`-` colorate anche fuori dai blocchi ```diff.
-- [ ] **Tabelle**: esportazione CSV, ordinamento per colonna con un clic.
-- [ ] **Output lunghi degli strumenti** compressi, con un clic per espanderli.
-- [ ] **Ora di invio** accanto a ogni prompt.
-- [ ] **Palette chiara** per chi usa un terminale con sfondo chiaro.
+- [ ] **`⧉ Copy code`** under every code block, like tables.
+- [ ] **Markdown headings** (`##`, `###`) with the same style as heading lines.
+- [ ] **Quotes and callouts** (`> Note`, `> Warning`) in a coloured box.
+- [ ] **Diffs** with coloured `+`/`-` lines outside ```diff blocks too.
+- [ ] **Tables**: CSV export, sort by column with a click.
+- [ ] **Long tool output** folded, one click to expand.
+- [ ] **Send time** next to each prompt.
+- [ ] **Light palette** for terminals with a light background.
 
-## Fatto
+## Done
 
-- [x] Sidebar operativa (dove operi, modello ed effort, modalita' attive, contesto, azioni rapide, comandi di scrittura, promemoria, file).
-- [x] Barra minimal di 2 righe a finestra stretta.
-- [x] Elenco dei modelli che si aggiorna da solo.
-- [x] Stile della chat: prompt, output dei comandi, codice, tabelle con copia per Teams/Outlook/Excel, titoli ed elenchi leggibili, linea di fine turno.
+- [x] Operational side panel (where you are, model and effort, active modes, context, quick actions, write commands, reminders, files).
+- [x] Two-line bar in a narrow terminal.
+- [x] Model list that updates by itself.
+- [x] Write commands matched only at the start of a command, and MCP tools that write.
+- [x] Chat look: prompts, command output, code, tables with copy for Teams/Outlook/Excel, readable headings and lists, end-of-turn line.
 - [x] `/newstyle on|off`.
