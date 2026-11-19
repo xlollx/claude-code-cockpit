@@ -180,15 +180,15 @@ let ACCENT = '#f5a97f'
 let BLUE = '#6ea8f7'
 let VIOLET = '#a98bdc'
 let PROD = '#ef5f6b'
-let USER_BG = '#1a1a20'
-let CODE_BG = '#16161c'
+let USER_BG = '#2b2b2f'
+let CODE_BG = '#262629'
 let CODE_BAR = '#98c379'
 // free columns between the chat and the sidebar
 const GAP = 3
 // line between one turn and the next: slightly lighter than the background
 let HL_BG = '#6b5310'
 let HL_FG = '#ffe28a'
-let TURN_RULE = '#2c2c36'
+let TURN_RULE = '#3a3a40'
 
 type Part = {
   text: string
@@ -328,9 +328,9 @@ function splitTables(md: string): Part[] {
   return out
 }
 
-let HEAD_BG = '#25253a'
-let ZEBRA_BG = '#15151b'
-let TABLE_BORDER = '#4a4a5c'
+let HEAD_BG = '#33334a'
+let ZEBRA_BG = '#252528'
+let TABLE_BORDER = '#55556a'
 
 // Wraps inside a cell: by words, splitting only the words longer than the column
 function wrapCell(s: string, w: number): string[] {
@@ -653,8 +653,8 @@ const isProd = (s?: string) => !!s && PROD_RX.test(s) && !/no-?prod|non-?prod/i.
 const PALETTES = {
   dark: {
     PANE_BG: '#262626', ACCENT: '#f5a97f', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
-    USER_BG: '#1a1a20', CODE_BG: '#16161c', CODE_BAR: '#98c379', TURN_RULE: '#2c2c36',
-    HEAD_BG: '#25253a', ZEBRA_BG: '#15151b', TABLE_BORDER: '#4a4a5c', HL_BG: '#6b5310', HL_FG: '#ffe28a',
+    USER_BG: '#2b2b2f', CODE_BG: '#262629', CODE_BAR: '#98c379', TURN_RULE: '#3a3a40',
+    HEAD_BG: '#33334a', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#ffe28a',
   },
   light: {
     PANE_BG: '#ececec', ACCENT: '#c2410c', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',

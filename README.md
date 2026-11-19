@@ -90,7 +90,7 @@ None of these is required; each section stays hidden or empty when its source is
 
 ## Extras
 
-`extras/windows-terminal-ember-dark.json`: the "Ember Dark" colour scheme for Windows Terminal (paste it into `schemes` in Windows Terminal's `settings.json`). In Claude Code, `/theme` -> "Dark mode (ANSI colors only)" uses the terminal palette.
+`extras/windows-terminal-ember-dark.json`: the "Ember Dark" colour scheme for Windows Terminal (Obsidian-like `#1E1E1E` background) (paste it into `schemes` in Windows Terminal's `settings.json`). In Claude Code, `/theme` -> "Dark mode (ANSI colors only)" uses the terminal palette.
 
 ## Known limits
 
