@@ -25,13 +25,16 @@ From a shell:
 claude plugin install cockpit --marketplace xlollx/claude-code-cockpit
 ```
 
-The panel opens by itself in new sessions (turn that off with `openOnStart`).
+The panel opens by itself in new sessions (turn that off with `openOnStart`). Nothing else is required: no particular font, prompt theme or shell setup.
+
+**Windows Terminal**: the first time, the mod offers the recommended terminal look (a toast and an orange `Terminal look` button in Quick actions, or `/cockpit-setup`). One press backs up Windows Terminal's `settings.json` and sets, on the profile Claude Code runs in, the "Ember Dark" colour scheme (`#1E1E1E` background), real bold text (`intenseTextStyle: "all"`, without which headings and inline code do not look bold) and a little padding. The mod never changes the terminal without that press; to undo, copy the backup over `settings.json`. In other terminals pick a dark background close to `#1E1E1E` (the colours are in `extras/`).
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `/cockpit` (alias `/sidebar`) | opens the side panel again after you closed it with `×` |
+| `/cockpit-setup` | applies the recommended Windows Terminal look (see Install), with a backup |
 | `/newstyle off` | turns the whole look off: panel and chat styling. `/newstyle on` turns it back on. The choice is remembered across sessions |
 
 ## The side panel
@@ -121,6 +124,7 @@ Claude's task list for the session (`TaskCreate`/`TaskUpdate`, or `TodoWrite`): 
 | `Compact` | runs `/compact` |
 | `Context` | runs `/context` (detailed context usage) |
 | `Copy path` | copies the current folder's path to the clipboard |
+| `Terminal look` | shown only in Windows Terminal while the recommended look is not applied: applies it (see Install) |
 | `Paste image` | saves the image in the clipboard as a PNG (in `%TEMP%\claude-cockpit\` on Windows) and writes its path into the prompt. Also works with an image **file** copied in Explorer. Useful when you want the image as a file on disk, or the clipboard holds a file rather than pixels |
 
 ### Write commands
@@ -160,9 +164,10 @@ The files Claude edited in the session, with how many times (`×3`).
 | `/command` output | orange bar (red on error) |
 | Short heading lines | bold orange (before a list or a table), and so is a bold lead-in that opens a line or list item (`**Next steps:** ...`) |
 | Numbered and bulleted lists | orange numbers and bullets, sub-items indented with softer orange markers, a blank line between items that have sub-items |
-| `inline code` | saturated cyan and bold instead of Claude Code's periwinkle, so it stands out from plain text, headings and links (`inlineCodeColor` to change it) |
+| `inline code` and **bold** inside a sentence | saturated cyan and bold instead of Claude Code's periwinkle, so it stands out from plain text, headings and links (`inlineCodeColor` to change it) |
 | Links | bare URLs too are blue, underlined, italic and clickable (in terminals that support links) |
 | Prose | uses the whole chat width, or wraps at `proseWidth` columns |
+| Tool results | `Wrote 17 lines to ...`, file previews and command output on a slightly lighter background with a grey bar on the left, as OpenCode draws them (the expanded ctrl+o view is left as Claude Code draws it) |
 | Code blocks | box with a green bar, the language name, syntax highlighting, and a **`⧉ Copy code`** button under it |
 | Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat; a **`⧉ Copy table`** button under it |
 | Under the prompt | `▣ Opus 5.5 · high` before Claude Code's own hint line, as OpenCode shows model and agent under its input |
@@ -227,12 +232,10 @@ So you know what you are trusting:
 
 - **Processes**: `git` (branch, status, remote, and `git credential fill` to read the token git already stores), `az account get-access-token` (only when Azure DevOps projects are watched), PowerShell on Windows / `osascript` on macOS / `wl-copy`, `wl-paste` or `xclip` on Linux (only when you press a copy or paste button). They run in every folder you open Claude Code in. On Windows each command is looked up by absolute path in `PATH`, never in the current folder, so a repository cannot ship its own `git.exe` or `az.cmd` to be run.
 - **Network**: only GET requests, only to `api.github.com` and `dev.azure.com`. The host is fixed in the code; a git remote or a command can choose the organization or repository, never the host. Tokens stay in memory and are never shown, logged or written to disk.
-- **Files written**: the reminders file (only when you press `✓ done` or `+1 day`) and the pasted image (in `%TEMP%\claude-cockpit\` on Windows, in a private `mktemp -d` folder on macOS and Linux).
+- **Files written**: Windows Terminal's `settings.json` and its backup (only when you press `Terminal look` or run `/cockpit-setup`), the reminders file (only when you press `✓ done` or `+1 day`) and the pasted image (in `%TEMP%\claude-cockpit\` on Windows, in a private `mktemp -d` folder on macOS and Linux).
 - The Write commands list is a reminder of what you ran, not a security control: a command wrapped in a script or `bash -c` is not seen.
 
 ## Extras
-
-**Windows Terminal and bold**: by default Windows Terminal draws bold text only as a brighter colour (`intenseTextStyle: "bright"`), which does nothing on the mod's RGB colours, so headings and inline code do not look bold. Set `"intenseTextStyle": "all"` in `profiles.defaults` of Windows Terminal's `settings.json` for a real bold font.
 
 
 `extras/windows-terminal-ember-dark.json`: the "Ember Dark" colour scheme for Windows Terminal, with an Obsidian-like `#1E1E1E` background. Paste it into `schemes` in Windows Terminal's `settings.json` and pick it in the profile. In Claude Code, `/theme` -> "Dark mode (ANSI colors only)" uses the terminal palette.

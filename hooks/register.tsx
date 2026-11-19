@@ -32,6 +32,7 @@ const pr = atom({ plugin: 'cockpit', key: 'pr' } as const, null as PullRequest |
 const tasks = atom({ plugin: 'cockpit', key: 'tasks' } as const, [] as TaskItem[], { shape: 'tasks-1' })
 const search = atom({ plugin: 'cockpit', key: 'search' } as const, null as SearchResult | null, { shape: 'search-1' })
 const pipes = atom({ plugin: 'cockpit', key: 'pipes' } as const, [] as PipelineRun[], { shape: 'pipes-1' })
+const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -185,6 +186,9 @@ let VIOLET = '#a98bdc'
 let PROD = '#ef5f6b'
 let USER_BG = '#2b2b2f'
 let CODE_BG = '#262629'
+// background of tool results (Wrote/Read previews, command output)
+let TOOL_BG = '#28282c'
+let TOOL_BAR = '#5c5c66'
 let CODE_BAR = '#98c379'
 // free columns between the chat and the sidebar
 const GAP = 3
@@ -704,12 +708,12 @@ const isProd = (s?: string) => !!s && PROD_RX.test(s) && !/no-?prod|non-?prod/i.
 const PALETTES = {
   dark: {
     PANE_BG: '#262626', ACCENT: '#f5a97f', ACCENT_SOFT: '#b88468', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
-    USER_BG: '#2b2b2f', CODE_BG: '#262629', CODE_BAR: '#98c379', TURN_RULE: '#3a3a40',
+    USER_BG: '#2b2b2f', CODE_BG: '#262629', TOOL_BG: '#28282c', TOOL_BAR: '#5c5c66', CODE_BAR: '#98c379', TURN_RULE: '#3a3a40',
     HEAD_BG: '#33334a', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#ffe28a', CODE_INLINE: '#56b6c2',
   },
   light: {
     PANE_BG: '#ececec', ACCENT: '#c2410c', ACCENT_SOFT: '#e29470', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',
-    USER_BG: '#eef2f7', CODE_BG: '#f4f4f5', CODE_BAR: '#16a34a', TURN_RULE: '#d4d4d8',
+    USER_BG: '#eef2f7', CODE_BG: '#f4f4f5', TOOL_BG: '#f1f1f3', TOOL_BAR: '#a1a1aa', CODE_BAR: '#16a34a', TURN_RULE: '#d4d4d8',
     HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f', CODE_INLINE: '#0e7490',
   },
 }
@@ -728,7 +732,7 @@ let PIPES_ALL = false
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
-  ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE } = pal)
+  ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, TOOL_BG, TOOL_BAR, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE } = pal)
   const width = Number(options.proseWidth)
   // 0 (default) = the whole chat width; 40 or more = wrap reply text at that column
   PROSE_MAX = Number.isFinite(width) && width >= 40 ? Math.round(width) : Number.POSITIVE_INFINITY
@@ -1322,7 +1326,7 @@ async function refreshPipes($: EngineInterface, force = false) {
       watchFrom(r.stdout)
       const ssh = /ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\//.exec(r.stdout)
       if (ssh) {
-        WATCHED.add(`${ssh[1]}/${decodeURIComponent(ssh[2] ?? '')}`)
+        watch(ssh[1] ?? '', decode(ssh[2] ?? ''))
       }
     }
   } catch {
@@ -1377,6 +1381,140 @@ async function openCommand($: EngineInterface) {
   return { text: r.isPlaced ? 'Panel open.' : `Panel not shown: ${r.reason ?? 'terminal too narrow'}` }
 }
 
+// ---------- Terminal look: Windows Terminal colour scheme, real bold, padding ----------
+// What the mod cannot draw itself lives in the terminal's settings: the background and the
+// way bold is drawn (by default Windows Terminal shows bold only as a brighter colour, which
+// does nothing on RGB colours). /cockpit-setup or the panel button apply it to the profile
+// Claude Code runs in, after a backup; nothing is changed without that press.
+const EMBER_DARK = {
+  name: 'Ember Dark', background: '#1E1E1E', foreground: '#DADADA', cursorColor: '#F5A97F', selectionBackground: '#3A3A40',
+  black: '#2A2A2E', red: '#E06C75', green: '#98C379', yellow: '#E5C07B', blue: '#6EA8F7', purple: '#A98BDC', cyan: '#56B6C2', white: '#C8C8CE',
+  brightBlack: '#5C5C66', brightRed: '#EF8891', brightGreen: '#B0D68F', brightYellow: '#F0D398', brightBlue: '#8FBCFA', brightPurple: '#C0A6EA', brightCyan: '#7FCBD4', brightWhite: '#FFFFFF',
+}
+type WtProfile = { guid?: string; colorScheme?: unknown; intenseTextStyle?: string; padding?: string }
+type WtSettings = { defaultProfile?: string; schemes?: { name?: string }[]; profiles?: { defaults?: WtProfile; list?: WtProfile[] } | WtProfile[] }
+
+// Windows Terminal accepts comments and trailing commas in settings.json; JSON.parse does not
+function parseJsonc(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    let out = ''
+    let inStr = false
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i] ?? ''
+      const n = text[i + 1] ?? ''
+      if (inStr) {
+        out += c
+        if (c === '\\') {
+          out += n
+          i++
+        } else if (c === '"') {
+          inStr = false
+        }
+      } else if (c === '"') {
+        inStr = true
+        out += c
+      } else if (c === '/' && n === '/') {
+        while (i < text.length && text[i] !== '\n') {
+          i++
+        }
+        out += '\n'
+      } else if (c === '/' && n === '*') {
+        i += 2
+        while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
+          i++
+        }
+        i++
+      } else {
+        out += c
+      }
+    }
+    return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'))
+  }
+}
+
+// settings.json of the Windows Terminal this session runs in, or undefined elsewhere
+async function wtSettingsPath($: EngineInterface) {
+  if ((await platform($)) !== 'windows' || (await $.env.get('WT_SESSION')) === undefined) {
+    return undefined
+  }
+  const local = (await $.env.get('LOCALAPPDATA')) ?? `${await home($)}\\AppData\\Local`
+  for (const p of [
+    `${local}\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json`,
+    `${local}\\Packages\\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\\LocalState\\settings.json`,
+    `${local}\\Microsoft\\Windows Terminal\\settings.json`,
+  ]) {
+    if (await $.fs.exists(p)) {
+      return p
+    }
+  }
+  return undefined
+}
+
+// the profile this session runs in (WT_PROFILE_ID, else Windows Terminal's default profile),
+// else the defaults every profile inherits
+async function wtTarget($: EngineInterface, d: WtSettings): Promise<WtProfile> {
+  const id = ((await $.env.get('WT_PROFILE_ID')) ?? d.defaultProfile ?? '').toLowerCase()
+  if (Array.isArray(d.profiles)) {
+    return d.profiles.find(x => (x.guid ?? '').toLowerCase() === id) ?? {}
+  }
+  d.profiles ??= {}
+  const found = (d.profiles.list ?? []).find(x => id !== '' && (x.guid ?? '').toLowerCase() === id)
+  if (found) {
+    return found
+  }
+  d.profiles.defaults ??= {}
+  return d.profiles.defaults
+}
+
+async function terminalState($: EngineInterface): Promise<'na' | 'pending' | 'done'> {
+  try {
+    const path = await wtSettingsPath($)
+    if (path === undefined) {
+      return 'na'
+    }
+    const d = parseJsonc(await $.fs.read(path)) as WtSettings
+    const t = await wtTarget($, d)
+    // effective values: what the profile sets, else what it inherits from the defaults
+    const base = Array.isArray(d.profiles) ? {} : (d.profiles?.defaults ?? {})
+    const scheme = t.colorScheme ?? base.colorScheme
+    const intense = t.intenseTextStyle ?? base.intenseTextStyle
+    return scheme === EMBER_DARK.name && intense === 'all' ? 'done' : 'pending'
+  } catch {
+    return 'na'
+  }
+}
+
+async function applyTerminalLook($: EngineInterface): Promise<string> {
+  const path = await wtSettingsPath($)
+  if (path === undefined) {
+    return 'Terminal look: only for Windows Terminal. In other terminals pick a dark background close to #1E1E1E; the colours are in extras/ of the repository.'
+  }
+  const text = await $.fs.read(path)
+  let d: WtSettings
+  try {
+    d = parseJsonc(text) as WtSettings
+  } catch {
+    return `Terminal look: could not read ${path}, nothing changed.`
+  }
+  const d0 = new Date(await $.clock.now())
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const backup = `${path}.cockpit-${d0.getFullYear()}${pad(d0.getMonth() + 1)}${pad(d0.getDate())}-${pad(d0.getHours())}${pad(d0.getMinutes())}${pad(d0.getSeconds())}.bak`
+  await $.fs.write(backup, text)
+  d.schemes ??= []
+  if (!d.schemes.some(x => x.name === EMBER_DARK.name)) {
+    d.schemes.push(EMBER_DARK)
+  }
+  const t = await wtTarget($, d)
+  t.colorScheme = EMBER_DARK.name
+  t.intenseTextStyle = 'all'
+  t.padding ??= '8, 6'
+  await $.fs.write(path, JSON.stringify(d, null, 4) + '\n')
+  await update($, termLook, () => 'done')
+  return `Terminal look applied (Ember Dark, real bold, padding). Backup: ${backup}. To undo, copy the backup over settings.json.`
+}
+
 export const register: Register = (on, options) => {
   applyOptions(options)
 
@@ -1388,6 +1526,7 @@ export const register: Register = (on, options) => {
       description: 'Cockpit look (side panel, prompt boxes, readable replies): on | off',
       argumentHint: 'on | off',
     })
+    await $.command.register({ name: 'cockpit-setup', description: 'Apply the recommended Windows Terminal look (colours, real bold), with a backup' })
     const isOn = (await $.store.get('enabled')) !== false
     await update($, enabled, () => isOn)
     const initial = await effortFromSettings($)
@@ -1399,6 +1538,14 @@ export const register: Register = (on, options) => {
     const ran = await next(e)
     await refreshAll($)
     void refreshPipes($, true)
+    void (async () => {
+      const st = await terminalState($)
+      await update($, termLook, () => st)
+      if (st === 'pending' && (await $.store.get('termOffered')) !== true) {
+        await $.store.set('termOffered', true)
+        $.ui.toast('Windows Terminal: press "Terminal look" in the panel (or /cockpit-setup) for the recommended colours and real bold')
+      }
+    })()
     // az account set / kubectl config use-context done outside here: recheck every 30 s
     $.clock.every(30_000, () => {
       void (async () => {
@@ -1479,6 +1626,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  on('command.run', { command: 'cockpit-setup' }, async $ => ({ text: await applyTerminalLook($) }))
   on('command.run', { command: 'cockpit' }, openCommand)
   on('command.run', { command: 'sidebar' }, openCommand)
 
@@ -1653,7 +1801,10 @@ export const register: Register = (on, options) => {
             {mark(tok.slice(1, -1))}
           </Text>
         ) : tok.startsWith('**') && tok.endsWith('**') && tok.length > 4 ? (
-          <Text bold>{mark(tok.slice(2, -2))}</Text>
+          // bold inside a sentence: the inline-code colour, so it stands out from plain text
+          <Text bold color={CODE_INLINE}>
+            {mark(tok.slice(2, -2))}
+          </Text>
         ) : /^https?:\/\//.test(tok) ? (
           <Text color={BLUE} underline italic>
             <Link href={tok}>{mark(tok)}</Link>
@@ -1873,6 +2024,26 @@ export const register: Register = (on, options) => {
     )
   })
 
+  // Tool results ("Wrote 17 lines to ...", file previews, command output): the engine's
+  // drawing on a slightly lighter background, so they stand apart from the reply
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    // expanded (ctrl+o, --verbose): the engine adds blank rows around it, which the
+    // background would paint as a grey frame; left as the engine draws it
+    if (!(await read($, enabled)) || e.props.isExpanded === true) {
+      return next(e)
+    }
+    const { Box } = $.ui.resolve(e)
+    // OpenCode style: a grey bar on the left, as the blue one on your prompts
+    return (
+      <Box flexDirection="row" marginRight={GAP}>
+        <Box width={1} flexShrink={0} backgroundColor={TOOL_BAR} />
+        <Box flexDirection="column" flexGrow={1} backgroundColor={TOOL_BG}>
+          {await next(e)}
+        </Box>
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
     if (!(await read($, enabled)) || e.props.waitingFor !== undefined || e.props.isExpanded === true) {
       return next(e)
@@ -1918,6 +2089,7 @@ export const register: Register = (on, options) => {
     const pctColor = pct >= 80 ? 'error' : pct >= 60 ? 'warning' : ACCENT
     const today = localStamp(await $.clock.now())
     const pull = await read($, pr)
+    const term = await read($, termLook)
     const tl = await read($, tasks)
     const found = await read($, search)
     // by default only what needs an eye: running, queued, waiting for approval, failed
@@ -2194,6 +2366,13 @@ export const register: Register = (on, options) => {
                 <Text>Paste image</Text>
               </Button>
             </Box>
+            {term === 'pending' && (
+              <Box marginRight={1}>
+                <Button key="act-term" onPress={async () => $.ui.toast(await applyTerminalLook($))}>
+                  <Text color={ACCENT}>Terminal look</Text>
+                </Button>
+              </Box>
+            )}
           </Box>,
         )}
 

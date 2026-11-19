@@ -100,6 +100,8 @@ declare module 'claude-code' {
       search: Shaped<SearchResult | null>
       /** Azure DevOps runs requested by you in the last 24 hours */
       pipes: Shaped<PipelineRun[]>
+      /** Windows Terminal look: na (not Windows Terminal), pending (not applied), done */
+      termLook: Shaped<'na' | 'pending' | 'done'>
     }
   }
 }
