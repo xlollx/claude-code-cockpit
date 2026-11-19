@@ -22,6 +22,7 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 | Reminders / Files | reminders due within 7 days (optional, see below) with `✓ done` and `+1 day` buttons that update the file, files edited in the session |
 
 - Click a section title to fold or unfold it (remembered across sessions).
+- At the bottom: the session's folder and the Claude Code version.
 - In a wide terminal the panel sits on the side; in a narrow one it becomes a two-line bar above the prompt.
 
 ### Chat
@@ -36,6 +37,7 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 | Code blocks | box with a green bar, language name, syntax highlighting, and `⧉ Copy code` under it |
 | Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat |
 | `⧉ Copy table` | under every table: copies it as HTML, so Teams, Outlook, Word and Excel paste a real table. Windows: HTML + tab-separated text through PowerShell. macOS: HTML + text through `osascript`. Linux: HTML through `wl-copy` or `xclip` (macOS and Linux not tested yet) |
+| Under the prompt | `▣ Opus 5.5 · high` before Claude Code's own hint line (esc to interrupt, permission mode), as OpenCode shows agent and model under its input |
 | End of turn | `▣ Opus 5.5 · high · 40s` and a thin line between one turn and the next |
 
 `/newstyle on|off` turns the whole look on or off (remembered across sessions).

@@ -667,6 +667,7 @@ const SECTION_IDS: Record<string, string> = {
   actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file',
 }
 let HIDDEN = new Set<string>()
+let CC_VERSION = ''
 let OPEN_ON_START = true
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
@@ -1157,6 +1158,7 @@ export const register: Register = (on, options) => {
     const savedCollapsed = (await $.store.get('collapsed')) as string[] | undefined
     await update($, collapsed, () => (Array.isArray(savedCollapsed) ? savedCollapsed : []))
     await loadModels($)
+    CC_VERSION = (await $.session.version()).version
     const ran = await next(e)
     await refreshAll($)
     // az account set / kubectl config use-context done outside here: recheck every 30 s
@@ -1488,6 +1490,33 @@ export const register: Register = (on, options) => {
   })
 
   // End-of-response line: "▣ model · duration" in place of "Crunched for 2m 29s"
+  // The dim line under the prompt: "▣ Opus 5.5 · high" first, then the engine's own hint
+  // (esc to interrupt, permission mode...), as OpenCode shows agent and model under its input
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    if (!(await read($, enabled))) {
+      return next(e)
+    }
+    const { Box, Text } = $.ui.resolve(e)
+    const u = await read($, usage)
+    const eff = await read($, effort)
+
+    return (
+      <Box flexDirection="row">
+        <Text>
+          <Text color={BLUE}>▣ </Text>
+          <Text bold>{prettyModel(u?.model)}</Text>
+          {eff !== null && (
+            <Text>
+              <Text dimColor> · </Text>
+              <Text color={VIOLET}>{eff}</Text>
+            </Text>
+          )}
+          {e.props.hint.trim() !== '' && <Text dimColor>{'   '}{e.props.hint}</Text>}
+        </Text>
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
     if (!(await read($, enabled)) || e.props.waitingFor !== undefined || e.props.isExpanded === true) {
       return next(e)
@@ -1704,13 +1733,13 @@ export const register: Register = (on, options) => {
                 <Text dimColor>
                   {found.total} match{found.total === 1 ? '' : 'es'} in {found.inMessages} message{found.inMessages === 1 ? '' : 's'}, newest first
                 </Text>
-                {found.hits.slice(found.page * 6, found.page * 6 + 6).map((h, n) => (
-                  <Button key={`hit-${found.page}-${n}`} plain onPress={() => void jumpTo($, h.probe, h.match)}>
+                {found.hits.slice(found.page * 6, found.page * 6 + 6).map((hit, n) => (
+                  <Button key={`hit-${found.page}-${n}`} plain onPress={() => void jumpTo($, hit.probe, hit.match)}>
                     <Text>
-                      <Text color={h.role === 'user' ? BLUE : VIOLET}>{h.role === 'user' ? 'you ' : 'claude '}</Text>
-                      <Text dimColor>{cut(h.before, 24)}</Text>
-                      <Text bold color={ACCENT}>{h.match}</Text>
-                      <Text dimColor>{cut(h.after, Math.max(10, cols - 34 - h.match.length))}</Text>
+                      <Text color={hit.role === 'user' ? BLUE : VIOLET}>{hit.role === 'user' ? 'you ' : 'claude '}</Text>
+                      <Text dimColor>{cut(hit.before, 24)}</Text>
+                      <Text bold color={ACCENT}>{hit.match}</Text>
+                      <Text dimColor>{cut(hit.after, Math.max(10, cols - 34 - hit.match.length))}</Text>
                     </Text>
                   </Button>
                 ))}
@@ -1897,6 +1926,18 @@ export const register: Register = (on, options) => {
             ))}
           </Box>,
         )}
+
+        {/* footer, as OpenCode's: where the session runs and which Claude Code */}
+        <Box flexDirection="column" marginTop={1}>
+          <Text dimColor>{cut(w.cwd ?? '', cols)}</Text>
+          {CC_VERSION !== '' && (
+            <Text>
+              <Text color="success">● </Text>
+              <Text bold>Claude Code</Text>
+              <Text dimColor> {CC_VERSION}</Text>
+            </Text>
+          )}
+        </Box>
       </Box>
     )
   })
