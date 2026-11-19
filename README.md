@@ -159,7 +159,7 @@ The files Claude edited in the session, with how many times (`×3`).
 | Your prompts | box with a blue bar on the left and a slightly lighter background |
 | `/command` output | orange bar (red on error) |
 | Short heading lines | bold orange, and so is a bold lead-in that opens a line or list item (`**Next steps:** ...`) |
-| Numbered and bulleted lists | coloured numbers, sub-items indented, a blank line between items that have sub-items |
+| Numbered and bulleted lists | orange numbers and bullets, sub-items indented with softer orange markers, a blank line between items that have sub-items |
 | `inline code` | saturated cyan and bold instead of Claude Code's periwinkle, so it stands out from plain text, headings and links (`inlineCodeColor` to change it) |
 | Links | bare URLs too are blue, underlined, italic and clickable (in terminals that support links) |
 | Prose | uses the whole chat width, or wraps at `proseWidth` columns |

@@ -178,6 +178,8 @@ async function openPicker($: EngineInterface, command: 'model' | 'effort') {
 const openPane = ($: EngineInterface) => $.ui.open({ id: PANE, title: TITLE, backgroundColor: PANE_BG, rows: 3 })
 
 let ACCENT = '#f5a97f'
+// sub-list numbers and dashes: the accent, softer
+let ACCENT_SOFT = '#b88468'
 let BLUE = '#6ea8f7'
 let VIOLET = '#a98bdc'
 let PROD = '#ef5f6b'
@@ -698,12 +700,12 @@ const isProd = (s?: string) => !!s && PROD_RX.test(s) && !/no-?prod|non-?prod/i.
 
 const PALETTES = {
   dark: {
-    PANE_BG: '#262626', ACCENT: '#f5a97f', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
+    PANE_BG: '#262626', ACCENT: '#f5a97f', ACCENT_SOFT: '#b88468', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
     USER_BG: '#2b2b2f', CODE_BG: '#262629', CODE_BAR: '#98c379', TURN_RULE: '#3a3a40',
     HEAD_BG: '#33334a', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#ffe28a', CODE_INLINE: '#56b6c2',
   },
   light: {
-    PANE_BG: '#ececec', ACCENT: '#c2410c', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',
+    PANE_BG: '#ececec', ACCENT: '#c2410c', ACCENT_SOFT: '#e29470', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',
     USER_BG: '#eef2f7', CODE_BG: '#f4f4f5', CODE_BAR: '#16a34a', TURN_RULE: '#d4d4d8',
     HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f', CODE_INLINE: '#0e7490',
   },
@@ -723,7 +725,7 @@ let PIPES_ALL = false
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
-  ;({ PANE_BG, ACCENT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE } = pal)
+  ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE } = pal)
   const width = Number(options.proseWidth)
   // 0 (default) = the whole chat width; 40 or more = wrap reply text at that column
   PROSE_MAX = Number.isFinite(width) && width >= 40 ? Math.round(width) : Number.POSITIVE_INFINITY
@@ -1670,7 +1672,7 @@ export const register: Register = (on, options) => {
             return (
               <Box flexDirection="row" marginLeft={pad}>
                 <Box width={bullet.length} flexShrink={0}>
-                  <Text dimColor>{bullet}</Text>
+                  <Text color={ACCENT_SOFT}>{bullet}</Text>
                 </Box>
                 <Box flexGrow={1} flexShrink={1}>
                   <Text>{inline(b[3] ?? '')}</Text>
