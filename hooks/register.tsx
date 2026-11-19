@@ -1637,8 +1637,13 @@ export const register: Register = (on, options) => {
     // One line of prose: `code` in the inline-code colour, **bold**, bare URLs as coloured
     // clickable links, search matches marked
     const inline = (line: string) =>
-      line.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|https?:\/\/[^\s<>()`*]+[^\s<>()`*.,;:!?'"])/).map(tok =>
-        tok.startsWith('`') && tok.endsWith('`') && tok.length > 2 ? (
+      line.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|https?:\/\/[^\s<>()`*]+[^\s<>()`*.,;:!?'"])/).map((tok, i) =>
+        // a bold lead-in that opens the line ("**Next steps:** ...") reads as a heading: orange
+        i === 1 && line.startsWith('**') && tok.startsWith('**') && tok.endsWith('**') && tok.length > 4 ? (
+          <Text bold color={ACCENT}>
+            {mark(tok.slice(2, -2))}
+          </Text>
+        ) : tok.startsWith('`') && tok.endsWith('`') && tok.length > 2 ? (
           <Text color={CODE_INLINE} bold>
             {mark(tok.slice(1, -1))}
           </Text>
