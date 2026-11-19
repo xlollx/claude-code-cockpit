@@ -1639,11 +1639,13 @@ export const register: Register = (on, options) => {
     const inline = (line: string) =>
       line.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|https?:\/\/[^\s<>()`*]+[^\s<>()`*.,;:!?'"])/).map(tok =>
         tok.startsWith('`') && tok.endsWith('`') && tok.length > 2 ? (
-          <Text color={CODE_INLINE}>{mark(tok.slice(1, -1))}</Text>
+          <Text color={CODE_INLINE} bold>
+            {mark(tok.slice(1, -1))}
+          </Text>
         ) : tok.startsWith('**') && tok.endsWith('**') && tok.length > 4 ? (
           <Text bold>{mark(tok.slice(2, -2))}</Text>
         ) : /^https?:\/\//.test(tok) ? (
-          <Text color={BLUE} underline>
+          <Text color={BLUE} underline italic>
             <Link href={tok}>{mark(tok)}</Link>
           </Text>
         ) : (

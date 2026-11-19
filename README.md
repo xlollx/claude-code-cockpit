@@ -160,8 +160,8 @@ The files Claude edited in the session, with how many times (`×3`).
 | `/command` output | orange bar (red on error) |
 | Short heading lines | bold orange |
 | Numbered and bulleted lists | coloured numbers, sub-items indented, a blank line between items that have sub-items |
-| `inline code` | saturated cyan instead of Claude Code's periwinkle, so it stands out from plain text, headings and links (`inlineCodeColor` to change it) |
-| Links | bare URLs too are blue, underlined and clickable (in terminals that support links) |
+| `inline code` | saturated cyan and bold instead of Claude Code's periwinkle, so it stands out from plain text, headings and links (`inlineCodeColor` to change it) |
+| Links | bare URLs too are blue, underlined, italic and clickable (in terminals that support links) |
 | Prose | uses the whole chat width, or wraps at `proseWidth` columns |
 | Code blocks | box with a green bar, the language name, syntax highlighting, and a **`⧉ Copy code`** button under it |
 | Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat; a **`⧉ Copy table`** button under it |
@@ -232,6 +232,9 @@ So you know what you are trusting:
 
 ## Extras
 
+**Windows Terminal and bold**: by default Windows Terminal draws bold text only as a brighter colour (`intenseTextStyle: "bright"`), which does nothing on the mod's RGB colours, so headings and inline code do not look bold. Set `"intenseTextStyle": "all"` in `profiles.defaults` of Windows Terminal's `settings.json` for a real bold font.
+
+
 `extras/windows-terminal-ember-dark.json`: the "Ember Dark" colour scheme for Windows Terminal, with an Obsidian-like `#1E1E1E` background. Paste it into `schemes` in Windows Terminal's `settings.json` and pick it in the profile. In Claude Code, `/theme` -> "Dark mode (ANSI colors only)" uses the terminal palette.
 
 ## Known limits
@@ -241,6 +244,7 @@ These come from what Claude Code lets a mod change:
 - The prompt box and the height of the docked panel cannot be restyled.
 - `!` shell rows and the `❯ /command` row are drawn by Claude Code and keep their default look.
 - MCP server status is not available to mods.
+- The `※ recap` line Claude Code shows when you come back to a session is a system row that mods cannot restyle.
 - A dropdown keeps the keyboard until Esc, so model and effort are buttons.
 - Claude Code's markdown ignores blank lines inside lists, so the mod draws lists itself.
 - Modes turned on before the mod loaded are not shown until you run the skill again.
