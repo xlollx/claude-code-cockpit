@@ -22,7 +22,7 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 | Reminders / Files | reminders due within 7 days (optional, see below) with `✓ done` and `+1 day` buttons that update the file, files edited in the session |
 
 - Click a section title to fold or unfold it (remembered across sessions).
-- At the bottom: the session's folder and the Claude Code version.
+- At the bottom: the Claude Code version, pinned to the panel's bottom edge.
 - In a wide terminal the panel sits on the side; in a narrow one it becomes a two-line bar above the prompt.
 
 ### Chat

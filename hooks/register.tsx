@@ -1735,7 +1735,9 @@ export const register: Register = (on, options) => {
     const effortValue = eff !== null && (EFFORTS as readonly string[]).includes(eff) ? eff : undefined
 
     return (
-      <Box flexDirection="column" paddingLeft={6} paddingRight={2} paddingTop={1}>
+      // at least as tall as the panel, so the footer sits on its bottom edge when the
+      // sections are short (when they are longer it follows them)
+      <Box flexDirection="column" paddingLeft={6} paddingRight={2} paddingTop={1} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
         {section('dove', 'Where you are', ACCENT, undefined,
           <Box flexDirection="column">
             <Box flexDirection="row">
@@ -2011,9 +2013,9 @@ export const register: Register = (on, options) => {
           </Box>,
         )}
 
-        {/* footer, as OpenCode's: where the session runs and which Claude Code */}
+        {/* footer, as OpenCode's: which Claude Code, pinned to the bottom by the spacer */}
+        <Box flexGrow={1} />
         <Box flexDirection="column" marginTop={1}>
-          <Text dimColor>{cut(w.cwd ?? '', cols)}</Text>
           {CC_VERSION !== '' && (
             <Text>
               <Text color="success">● </Text>
