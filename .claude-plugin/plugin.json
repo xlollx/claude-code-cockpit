@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -23,7 +23,7 @@
     "hiddenSections": {
       "type": "string",
       "title": "Hidden sections",
-      "description": "Panel sections to hide, comma separated: search, where, model, modes, context, pr, tasks, actions, writes, reminders, files",
+      "description": "Panel sections to hide, comma separated: search, pipelines, where, model, modes, context, pr, tasks, actions, writes, reminders, files",
       "default": ""
     },
     "prodPattern": {
@@ -42,6 +42,12 @@
       "type": "string",
       "title": "Inline code colour",
       "description": "Colour of `inline code` in replies, as #rrggbb; empty uses the palette's",
+      "default": ""
+    },
+    "adoProjects": {
+      "type": "string",
+      "title": "Azure DevOps projects",
+      "description": "Projects whose pipeline runs to show, comma separated as org/project (the current repo's and those named in commands are added by themselves)",
       "default": ""
     }
   }

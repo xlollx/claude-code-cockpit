@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { FileEdit, ModelChoice, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
+import type { FileEdit, ModelChoice, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
@@ -31,6 +31,7 @@ const models = atom({ plugin: 'cockpit', key: 'models' } as const, [] as ModelCh
 const pr = atom({ plugin: 'cockpit', key: 'pr' } as const, null as PullRequest | null, { shape: 'pr-1' })
 const tasks = atom({ plugin: 'cockpit', key: 'tasks' } as const, [] as TaskItem[], { shape: 'tasks-1' })
 const search = atom({ plugin: 'cockpit', key: 'search' } as const, null as SearchResult | null, { shape: 'search-1' })
+const pipes = atom({ plugin: 'cockpit', key: 'pipes' } as const, [] as PipelineRun[], { shape: 'pipes-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -666,12 +667,13 @@ const PALETTES = {
 
 // option name of a section -> id used for its folded state
 const SECTION_IDS: Record<string, string> = {
-  search: 'search', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
+  search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
   actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file',
 }
 let HIDDEN = new Set<string>()
 let CC_VERSION = ''
 let OPEN_ON_START = true
+let ADO_PROJECTS: string[] = []
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
@@ -691,6 +693,7 @@ function applyOptions(options: Readonly<Record<string, unknown>>) {
       .filter((x): x is string => x !== undefined),
   )
   OPEN_ON_START = options.openOnStart !== false
+  ADO_PROJECTS = String(options.adoProjects ?? '').split(',').map(x => x.trim()).filter(x => /^[^/]+\/[^/]+$/.test(x))
   if (typeof options.inlineCodeColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(options.inlineCodeColor)) {
     CODE_INLINE = options.inlineCodeColor
   }
@@ -1178,6 +1181,127 @@ const plainMd = (s: string) =>
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 
+// ---------- Azure DevOps pipelines started by you (read-only) ----------
+// Every run requested by you in the last 24 hours in the watched projects, however it was
+// started (portal, `az pipelines run`, REST, a PR), with pending approvals. GET only.
+
+// "org/project" pairs to watch: option adoProjects, the current repo's, and any seen in commands
+const WATCHED = new Set<string>()
+// organization of the azure-devops MCP server, when known from a watched project
+let ADO_DEFAULT_ORG = ''
+const ADO_RX = /dev\.azure\.com\/([^/\s'"]+)\/([^/\s'"?]+)/g
+
+function watchFrom(text: string) {
+  for (const m of text.matchAll(ADO_RX)) {
+    const org = m[1] ?? ''
+    const project = decodeURIComponent(m[2] ?? '')
+    if (org !== '' && project !== '' && !project.startsWith('_')) {
+      WATCHED.add(`${org}/${project}`)
+    }
+  }
+  const org = /--org(?:anization)?\s+['"]?https:\/\/dev\.azure\.com\/([^/\s'"]+)/.exec(text)?.[1]
+  const project = /(?:--project|\s-p)\s+(?:'([^']+)'|"([^"]+)"|(\S+))/.exec(text)
+  const name = project?.[1] ?? project?.[2] ?? project?.[3]
+  if (org && name) {
+    WATCHED.add(`${org}/${name}`)
+  }
+}
+
+const ADO_AUTH: Record<string, { token: string; until: number; me: string }> = {}
+
+// Bearer token for an organization from the Azure CLI, for the org's own tenant
+async function adoAuth($: EngineInterface, org: string) {
+  const now = await $.clock.now()
+  const cached = ADO_AUTH[org]
+  if (cached && cached.until > now) {
+    return cached
+  }
+  const anon = await $.http.fetch(`https://dev.azure.com/${org}/_apis/connectionData`, { method: 'GET' })
+  const tenant = Object.entries(anon.headers).find(([k]) => k.toLowerCase() === 'x-vss-resourcetenant')?.[1]
+  const args = ['account', 'get-access-token', '--resource', '499b84ac-1321-427f-aa17-267ca6975798', '--query', 'accessToken', '-o', 'tsv']
+  if (typeof tenant === 'string' && /^[0-9a-f-]{36}$/i.test(tenant)) {
+    args.push('--tenant', tenant)
+  }
+  const argv = (await platform($)) === 'windows' ? ['cmd', '/c', 'az', ...args] : ['az', ...args]
+  const r = await $.process.run(argv, { timeoutMs: 30000 })
+  const token = r.stdout.trim()
+  if (r.exitCode !== 0 || token === '') {
+    throw new Error('az login needed for Azure DevOps')
+  }
+  const cd = JSON.parse((await $.http.fetch(`https://dev.azure.com/${org}/_apis/connectionData`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } })).text) as {
+    authenticatedUser?: { id?: string }
+  }
+  const auth = { token, until: now + 40 * 60000, me: cd.authenticatedUser?.id ?? '' }
+  ADO_AUTH[org] = auth
+  return auth
+}
+
+let LAST_PIPES = 0
+
+async function refreshPipes($: EngineInterface, force = false) {
+  const now = await $.clock.now()
+  const active = (await read($, pipes)).some(r => r.status !== 'completed')
+  if (!force && !active && now - LAST_PIPES < 180000) {
+    return
+  }
+  LAST_PIPES = now
+  for (const x of ADO_PROJECTS) {
+    WATCHED.add(x)
+  }
+  ADO_DEFAULT_ORG = ADO_DEFAULT_ORG || ([...WATCHED][0]?.split('/')[0] ?? '')
+  try {
+    const r = await $.process.run(['git', 'remote', 'get-url', 'origin'], { timeoutMs: 5000 })
+    if (r.exitCode === 0) {
+      watchFrom(r.stdout)
+      const ssh = /ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\//.exec(r.stdout)
+      if (ssh) {
+        WATCHED.add(`${ssh[1]}/${decodeURIComponent(ssh[2] ?? '')}`)
+      }
+    }
+  } catch {
+    // not a git folder
+  }
+  if (WATCHED.size === 0) {
+    return
+  }
+  const since = new Date(now - 24 * 3600000).toISOString()
+  const runs: PipelineRun[] = []
+  for (const key of WATCHED) {
+    const [org = '', project = ''] = key.split('/')
+    try {
+      const auth = await adoAuth($, org)
+      const base = `https://dev.azure.com/${org}/${encodeURIComponent(project)}`
+      const h = { Authorization: `Bearer ${auth.token}` }
+      const builds = (await getJson($, `${base}/_apis/build/builds?requestedFor=${auth.me}&minTime=${since}&$top=10&queryOrder=queueTimeDescending&api-version=7.1`, h)) as {
+        value: { id: number; buildNumber: string; status: string; result?: string; sourceBranch?: string; queueTime?: string; finishTime?: string; definition: { name: string }; _links?: { web?: { href?: string } } }[]
+      }
+      let waiting = new Set<number>()
+      if (builds.value.some(b => b.status !== 'completed')) {
+        const ap = (await getJson($, `${base}/_apis/pipelines/approvals?state=pending&api-version=7.1`, h)) as { value: { pipeline?: { owner?: { id?: number } } }[] }
+        waiting = new Set(ap.value.map(a => a.pipeline?.owner?.id ?? -1))
+      }
+      for (const b of builds.value) {
+        runs.push({
+          project: key,
+          id: b.id,
+          name: b.definition.name,
+          status: b.status,
+          result: b.result ?? '',
+          branch: (b.sourceBranch ?? '').replace(/^refs\/heads\//, '').replace(/^refs\/pull\/(\d+)\/merge$/, 'PR $1'),
+          queued: b.queueTime ? Date.parse(b.queueTime) : 0,
+          finished: b.finishTime ? Date.parse(b.finishTime) : 0,
+          approval: waiting.has(b.id),
+          error: '',
+        })
+      }
+    } catch (err) {
+      runs.push({ project: key, id: 0, name: '', status: 'error', result: '', branch: '', queued: now, finished: 0, approval: false, error: String(err).slice(0, 80) })
+    }
+  }
+  runs.sort((a, b) => b.queued - a.queued)
+  await update($, pipes, () => runs.slice(0, 12))
+}
+
 // /cockpit and /sidebar: refresh and open the panel
 async function openCommand($: EngineInterface) {
   await refreshAll($)
@@ -1207,6 +1331,7 @@ export const register: Register = (on, options) => {
     CC_VERSION = (await $.session.version()).version
     const ran = await next(e)
     await refreshAll($)
+    void refreshPipes($, true)
     // az account set / kubectl config use-context done outside here: recheck every 30 s
     $.clock.every(30_000, () => {
       void (async () => {
@@ -1219,6 +1344,9 @@ export const register: Register = (on, options) => {
     })
     $.clock.every(120_000, () => {
       void refreshPr($)
+    })
+    $.clock.every(60_000, () => {
+      void refreshPipes($)
     })
     $.clock.every(300_000, () => {
       void refreshReminders($)
@@ -1309,6 +1437,16 @@ export const register: Register = (on, options) => {
 
     if (e.tool.startsWith('mcp__')) {
       const ran = await next(e)
+      if (e.tool.startsWith('mcp__azure-devops__')) {
+        const inp = e as unknown as { project?: string }
+        const org = /mcp__azure-devops__/.test(e.tool) ? ADO_DEFAULT_ORG : ''
+        if (org !== '' && typeof inp.project === 'string') {
+          WATCHED.add(`${org}/${inp.project}`)
+        }
+        if (/pipelines_run|pipelines_build/.test(e.tool)) {
+          void refreshPipes($, true)
+        }
+      }
       const line = mcpWrite(e.tool, e as unknown as Record<string, unknown>)
       if (line !== undefined && ran.deny === undefined) {
         const one: WriteCmd = { at: await $.clock.now(), text: line, ok: ran.isError !== true }
@@ -1342,6 +1480,13 @@ export const register: Register = (on, options) => {
       await refreshWhere($)
       if (line !== undefined && /\bgit\b.*\bpush\b|\bgh\s+pr\b|\baz\s+repos\s+pr\b/.test(line)) {
         void refreshPr($)
+      }
+      // an Azure DevOps project named in a command joins the watched ones; a run started
+      // from the CLI or REST shows up at once
+      const cmdText = input.command ?? ''
+      if (/dev\.azure\.com|az\s+(pipelines|repos|devops)/.test(cmdText)) {
+        watchFrom(cmdText)
+        void refreshPipes($, /pipelines\s+(run|build\s+queue)|\/runs\b|\/builds\b/.test(cmdText))
       }
 
       return ran
@@ -1696,6 +1841,7 @@ export const register: Register = (on, options) => {
     const pull = await read($, pr)
     const tl = await read($, tasks)
     const found = await read($, search)
+    const pl = await read($, pipes)
     const prodAz = isProd(w.azSub)
     const prodKube = isProd(w.kube)
     const prodGit = w.branch === 'main' || w.branch === 'master'
@@ -2014,6 +2160,34 @@ export const register: Register = (on, options) => {
                     {cut(t.subject, cols - 4)}
                   </Text>
                 ))}
+            </Box>,
+          )}
+
+        {pl.length > 0 &&
+          section('pipelines', 'Pipelines', BLUE, pl.filter(r => r.status !== 'completed' && r.status !== 'error').length || undefined,
+            <Box flexDirection="column">
+              {pl.slice(0, 6).map(r => {
+                if (r.status === 'error') {
+                  return <Text dimColor>{cut(`${r.project}: ${r.error}`, cols)}</Text>
+                }
+                const icon = r.approval ? '⏸' : r.status === 'inProgress' ? '⏳' : r.status === 'notStarted' ? '…' : r.result === 'succeeded' ? '✓' : r.result === 'failed' ? '✗' : r.result === 'partiallySucceeded' ? '⚠' : '⊘'
+                const tone = r.approval || r.status === 'inProgress' ? 'warning' : r.result === 'succeeded' ? 'success' : r.result === 'failed' ? 'error' : r.result === 'partiallySucceeded' ? 'warning' : undefined
+                const ago = since(now - (r.finished || r.queued))
+                return (
+                  <Box flexDirection="column">
+                    <Text>
+                      <Text color={tone}>{icon} </Text>
+                      {cut(r.name, cols - 12)}
+                      <Text dimColor> #{r.id}</Text>
+                    </Text>
+                    <Text dimColor>
+                      {'  '}
+                      {r.approval ? 'waiting for approval · ' : ''}
+                      {cut(r.branch, Math.max(8, cols - 22))} · {ago}
+                    </Text>
+                  </Box>
+                )
+              })}
             </Box>,
           )}
 

@@ -53,6 +53,20 @@ export type SearchResult = {
   hits: { role: 'user' | 'assistant'; msg: number; before: string; match: string; after: string; probe: string }[]
 }
 
+/** An Azure DevOps pipeline run requested by you (status `error` = the project could not be read) */
+export type PipelineRun = {
+  project: string
+  id: number
+  name: string
+  status: string
+  result: string
+  branch: string
+  queued: number
+  finished: number
+  approval: boolean
+  error: string
+}
+
 /** One item of Claude's task list */
 export type TaskItem = { id: string; subject: string; status: 'pending' | 'in_progress' | 'completed' }
 
@@ -84,6 +98,8 @@ declare module 'claude-code' {
       tasks: Shaped<TaskItem[]>
       /** last search in the session's messages */
       search: Shaped<SearchResult | null>
+      /** Azure DevOps runs requested by you in the last 24 hours */
+      pipes: Shaped<PipelineRun[]>
     }
   }
 }

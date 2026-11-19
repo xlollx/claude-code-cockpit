@@ -47,5 +47,6 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 - [x] Chat look: prompts, command output, code, tables with copy for Teams/Outlook/Excel, readable headings and lists, end-of-turn line.
 - [x] `/newstyle on|off`.
 - [x] Search in the session's messages from the panel, with jump to the message.
+- [x] Azure DevOps pipeline runs requested by you, with pending approvals (read-only).
 - [x] Active modes also follow modes asked for in words ("adhd mode on").
 - [x] `Paste image` quick action (Windows tested; macOS/Linux to be tested).
