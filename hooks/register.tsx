@@ -674,6 +674,8 @@ let HIDDEN = new Set<string>()
 let CC_VERSION = ''
 let OPEN_ON_START = true
 let ADO_PROJECTS: string[] = []
+let PIPES_MAX = 4
+let PIPES_ALL = false
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
@@ -693,6 +695,9 @@ function applyOptions(options: Readonly<Record<string, unknown>>) {
       .filter((x): x is string => x !== undefined),
   )
   OPEN_ON_START = options.openOnStart !== false
+  const pm = Number(options.pipelinesMax)
+  PIPES_MAX = Number.isFinite(pm) && pm >= 1 ? Math.round(pm) : 4
+  PIPES_ALL = options.pipelinesShow === 'all'
   ADO_PROJECTS = String(options.adoProjects ?? '').split(',').map(x => x.trim()).filter(x => /^[^/]+\/[^/]+$/.test(x))
   if (typeof options.inlineCodeColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(options.inlineCodeColor)) {
     CODE_INLINE = options.inlineCodeColor
@@ -1841,7 +1846,8 @@ export const register: Register = (on, options) => {
     const pull = await read($, pr)
     const tl = await read($, tasks)
     const found = await read($, search)
-    const pl = await read($, pipes)
+    // by default only what needs an eye: running, queued, waiting for approval, failed
+    const pl = (await read($, pipes)).filter(r => PIPES_ALL || r.status !== 'completed' || r.result === 'failed').slice(0, PIPES_MAX)
     const prodAz = isProd(w.azSub)
     const prodKube = isProd(w.kube)
     const prodGit = w.branch === 'main' || w.branch === 'master'
@@ -2166,7 +2172,7 @@ export const register: Register = (on, options) => {
         {pl.length > 0 &&
           section('pipelines', 'Pipelines', BLUE, pl.filter(r => r.status !== 'completed' && r.status !== 'error').length || undefined,
             <Box flexDirection="column">
-              {pl.slice(0, 6).map(r => {
+              {pl.map(r => {
                 if (r.status === 'error') {
                   return <Text dimColor>{cut(`${r.project}: ${r.error}`, cols)}</Text>
                 }

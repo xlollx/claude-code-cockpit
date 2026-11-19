@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -49,6 +49,22 @@
       "title": "Azure DevOps projects",
       "description": "Projects whose pipeline runs to show, comma separated as org/project (the current repo's and those named in commands are added by themselves)",
       "default": ""
+    },
+    "pipelinesShow": {
+      "type": "string",
+      "title": "Pipelines shown",
+      "description": "active-failed: only running, queued, waiting for approval and failed runs; all: every run of the last 24 hours",
+      "options": [
+        "active-failed",
+        "all"
+      ],
+      "default": "active-failed"
+    },
+    "pipelinesMax": {
+      "type": "number",
+      "title": "Pipelines max",
+      "description": "How many pipeline runs the panel shows at most",
+      "default": 4
     }
   }
 }

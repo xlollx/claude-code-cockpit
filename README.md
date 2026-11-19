@@ -15,7 +15,7 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 | Search | a text field: type, Enter, and see every occurrence in the session's messages (your prompts and Claude's replies), newest first, with the match highlighted; click a hit to scroll the chat to it. While a search is on, its occurrences are highlighted in the chat (prompts, replies, headings, tables; not inside code blocks), and `clear` turns that off. Esc gives the keyboard back to the prompt |
 | Active modes | `newstyle` and the session's mode skills (`i-have-adhd`, `caveman`, `ponytail` + level), turned on with `/skill` or in words ("adhd mode on", "caveman mode off"), plus `ultracode` when the last prompt contains it; `✕` puts the phrase that turns a skill off into the prompt |
 | Context | fill bar, tokens, 5-hour and 7-day limits, session duration; a warning at 80% |
-| Pipelines | Azure DevOps runs requested by you in the last 24 hours, however they were started (portal, `az pipelines run`, REST, a PR): ⏳ running, ⏸ waiting for approval, ✓ / ✗ / ⚠ / ⊘ result, branch and age. Display only (GET). Watches the current repo's project, any project named in a command, and `adoProjects`; needs `az login` (token for the organization's tenant) |
+| Pipelines | Azure DevOps runs requested by you in the last 24 hours, however they were started (portal, `az pipelines run`, REST, a PR); by default only running, queued, waiting for approval and failed ones, at most 4 (`pipelinesShow`, `pipelinesMax`): ⏳ running, ⏸ waiting for approval, ✓ / ✗ / ⚠ / ⊘ result, branch and age. Display only (GET). Watches the current repo's project, any project named in a command, and `adoProjects`; needs `az login` (token for the organization's tenant) |
 | Pull request | the open PR of the current branch on GitHub or Azure DevOps: number, title, draft, reviews (✓ approved, ✗ changes requested / rejected, ⏸ waiting) and CI result. Display only: the mod sends GET requests and never changes the pull request. Uses the credential git already holds (Git Credential Manager), never prompts; refreshed every 2 minutes, on branch change and after a push |
 | Tasks | Claude's task list for the session (`TaskCreate`/`TaskUpdate`, or `TodoWrite`): in progress ▶ first, then pending ○, then done ✓, with the done/total count |
 | Quick actions | `Compact`, `Context`, `Copy path`, `Paste image` (saves the clipboard image, or a file copied in Explorer, and puts its path in the prompt: no need to save or drag a file) |
@@ -75,6 +75,8 @@ Set them in `/config` (the plugin's rows) or in `settings.json` under `pluginCon
 | `prodPattern` | `prod` | regular expression that marks a subscription, kubectl context or branch as production (`noprod`/`nonprod` never match) |
 | `openOnStart` | `true` | open the panel when a session starts |
 | `adoProjects` | empty | Azure DevOps projects to watch for pipeline runs, comma separated as `org/project` |
+| `pipelinesShow` | `active-failed` | `all` shows every run of the last 24 hours, not only running, waiting and failed ones |
+| `pipelinesMax` | `4` | how many pipeline runs the panel shows at most |
 | `inlineCodeColor` | empty | colour of `inline code` in replies, as `#rrggbb` (default: soft teal `#7fd6c2` on dark, `#0f766e` on light) |
 
 ## Optional integrations
