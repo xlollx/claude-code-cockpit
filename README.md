@@ -161,6 +161,7 @@ The files Claude edited in the session, with how many times (`×3`).
 | Short heading lines | bold orange |
 | Numbered and bulleted lists | coloured numbers, sub-items indented, a blank line between items that have sub-items |
 | `inline code` | soft teal instead of Claude Code's periwinkle (`inlineCodeColor` to change it) |
+| Links | bare URLs too are blue, underlined and clickable (in terminals that support links) |
 | Prose | uses the whole chat width, or wraps at `proseWidth` columns |
 | Code blocks | box with a green bar, the language name, syntax highlighting, and a **`⧉ Copy code`** button under it |
 | Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat; a **`⧉ Copy table`** button under it |

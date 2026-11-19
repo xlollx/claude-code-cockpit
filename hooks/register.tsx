@@ -1616,7 +1616,7 @@ export const register: Register = (on, options) => {
     if (!(await read($, enabled))) {
       return next(e)
     }
-    const { Box, Button, Code, Markdown, Text } = $.ui.resolve(e)
+    const { Box, Button, Code, Link, Markdown, Text } = $.ui.resolve(e)
     if (e.props.isSummary === true) {
       return <Box paddingRight={GAP}>{await next(e)}</Box>
     }
@@ -1634,13 +1634,18 @@ export const register: Register = (on, options) => {
       )
     // markdown as usual; while a search is on, paragraphs holding it are drawn as plain
     // text with the occurrences highlighted
-    // One line of prose: `code` in the inline-code colour, **bold**, search matches marked
+    // One line of prose: `code` in the inline-code colour, **bold**, bare URLs as coloured
+    // clickable links, search matches marked
     const inline = (line: string) =>
-      line.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/).map(tok =>
+      line.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|https?:\/\/[^\s<>()`*]+[^\s<>()`*.,;:!?'"])/).map(tok =>
         tok.startsWith('`') && tok.endsWith('`') && tok.length > 2 ? (
           <Text color={CODE_INLINE}>{mark(tok.slice(1, -1))}</Text>
         ) : tok.startsWith('**') && tok.endsWith('**') && tok.length > 4 ? (
           <Text bold>{mark(tok.slice(2, -2))}</Text>
+        ) : /^https?:\/\//.test(tok) ? (
+          <Text color={BLUE} underline>
+            <Link href={tok}>{mark(tok)}</Link>
+          </Text>
         ) : (
           mark(tok)
         ),
