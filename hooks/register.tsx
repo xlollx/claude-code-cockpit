@@ -209,8 +209,9 @@ let PROSE_MAX = 100
 const LIST_ITEM = /^(\d+[.)]|[-*+])\s/
 
 // Heading lines written as plain text ("Il problema", "Rischio ...") followed by a
-// list: they become a separate piece, drawn in colored bold. The text does not change
-function splitLabels(md: string): Part[] {
+// list, or closing a text piece that a table follows: they become a separate piece,
+// drawn in colored bold. The text does not change
+function splitLabels(md: string, beforeTable = false): Part[] {
   const lines = md.split('\n')
   const out: Part[] = []
   let buf: string[] = []
@@ -233,7 +234,7 @@ function splitLabels(md: string): Part[] {
       !LIST_ITEM.test(l) &&
       !/^[#>|]/.test(l) &&
       !/[.,;!?]$/.test(l.trim()) &&
-      LIST_ITEM.test(nextL)
+      (LIST_ITEM.test(nextL) || (beforeTable && lines.slice(i + 1).every(x => x.trim() === '')))
     if (isLabel) {
       flush()
       out.push({ text: '', label: l.trim().replace(/\*\*|`/g, '') })
@@ -284,7 +285,9 @@ function splitLists(md: string): Part[] {
         n++
       }
       const mk = m?.[1] ?? '-'
-      out.push({ text: body.join('\n'), marker: /\d/.test(mk) ? mk : '•', spaced: spaced && !first })
+      // a list right after another list (a blank line between them) starts on its own line
+      const afterList = first && out.length > 0 && out[out.length - 1]?.marker !== undefined
+      out.push({ text: body.join('\n'), marker: /\d/.test(mk) ? mk : '•', spaced: (spaced && !first) || afterList })
       first = false
     }
     i = j
@@ -1712,7 +1715,7 @@ export const register: Register = (on, options) => {
     )
     const pieces = splitCode(e.props.text)
       .flatMap(p => (p.code === undefined ? splitTables(p.text) : [p]))
-      .flatMap(p => (p.code === undefined && p.table === undefined ? splitLabels(p.text) : [p]))
+      .flatMap((p, i, all) => (p.code === undefined && p.table === undefined ? splitLabels(p.text, all[i + 1]?.table !== undefined) : [p]))
       .flatMap(p => (p.code === undefined && p.table === undefined && p.label === undefined ? splitLists(p.text) : [p]))
     const nTables = pieces.filter(p => p.table !== undefined).length
     let k = 0
