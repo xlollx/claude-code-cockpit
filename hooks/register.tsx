@@ -186,6 +186,8 @@ let CODE_BAR = '#98c379'
 // free columns between the chat and the sidebar
 const GAP = 3
 // line between one turn and the next: slightly lighter than the background
+let HL_BG = '#6b5310'
+let HL_FG = '#ffe28a'
 let TURN_RULE = '#2c2c36'
 
 type Part = {
@@ -652,12 +654,12 @@ const PALETTES = {
   dark: {
     PANE_BG: '#262626', ACCENT: '#f5a97f', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
     USER_BG: '#1a1a20', CODE_BG: '#16161c', CODE_BAR: '#98c379', TURN_RULE: '#2c2c36',
-    HEAD_BG: '#25253a', ZEBRA_BG: '#15151b', TABLE_BORDER: '#4a4a5c',
+    HEAD_BG: '#25253a', ZEBRA_BG: '#15151b', TABLE_BORDER: '#4a4a5c', HL_BG: '#6b5310', HL_FG: '#ffe28a',
   },
   light: {
     PANE_BG: '#ececec', ACCENT: '#c2410c', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',
     USER_BG: '#eef2f7', CODE_BG: '#f4f4f5', CODE_BAR: '#16a34a', TURN_RULE: '#d4d4d8',
-    HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa',
+    HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f',
   },
 }
 
@@ -672,7 +674,7 @@ let OPEN_ON_START = true
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
-  ;({ PANE_BG, ACCENT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER } = pal)
+  ;({ PANE_BG, ACCENT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG } = pal)
   const width = Number(options.proseWidth)
   // 0 (default) = the whole chat width; 40 or more = wrap reply text at that column
   PROSE_MAX = Number.isFinite(width) && width >= 40 ? Math.round(width) : Number.POSITIVE_INFINITY
@@ -1057,6 +1059,10 @@ async function trackTasks($: EngineInterface, tool: string, input: Record<string
   )
 }
 
+// Lower case, markdown marks and runs of spaces dropped: the raw message and the
+// drawn row then compare equal
+const norm = (s: string) => s.toLowerCase().replace(/[*`_#>|\[\]]/g, '').replace(/\s+/g, ' ')
+
 // Transcript rows drawn so far (requestId + text), to scroll to a search hit
 const ROWS: { id: string; text: string }[] = []
 function rememberRow(id: string, text: string) {
@@ -1067,7 +1073,7 @@ function rememberRow(id: string, text: string) {
   if (i !== -1) {
     ROWS.splice(i, 1)
   }
-  ROWS.push({ id, text: text.toLowerCase() })
+  ROWS.push({ id, text: norm(text) })
   if (ROWS.length > 3000) {
     ROWS.shift()
   }
@@ -1108,7 +1114,7 @@ async function runSearch($: EngineInterface, q: string) {
           before: (from > 0 ? '…' : '') + text.slice(from, pos).replace(/\s+/g, ' '),
           match: text.slice(pos, pos + query.length),
           after: text.slice(pos + query.length, pos + query.length + 60).replace(/\s+/g, ' '),
-          probe: low.slice(Math.max(0, pos - 15), pos + ql.length + 15),
+          probe: norm(text.slice(Math.max(0, pos - 20), pos + ql.length + 20)),
         })
       }
       pos = low.indexOf(ql, pos + ql.length)
@@ -1121,16 +1127,52 @@ async function runSearch($: EngineInterface, q: string) {
 
 // Scrolls the transcript to the row that holds a hit, if it has been drawn
 async function jumpTo($: EngineInterface, probe: string, match: string) {
-  const row = [...ROWS].reverse().find(r => r.text.includes(probe)) ?? [...ROWS].reverse().find(r => r.text.includes(match.toLowerCase()))
+  // widest context first, then narrower, then the word alone (newest row)
+  const m = norm(match).trim()
+  const at = probe.indexOf(m)
+  const tries = [probe.trim(), at === -1 ? '' : probe.slice(Math.max(0, at - 8), at + m.length + 8).trim(), m].filter(x => x !== '')
+  let row: { id: string; text: string } | undefined
+  for (const t of tries) {
+    row = [...ROWS].reverse().find(r => r.text.includes(t))
+    if (row !== undefined) {
+      break
+    }
+  }
   if (row === undefined) {
-    $.ui.toast('That message is not on screen any more (compacted or not drawn yet)')
+    $.ui.toast('That message is not drawn on screen (compacted, or older than this session view)')
     return
   }
   const r = await $.ui.scroll({ to: { requestId: row.id }, block: 'center' })
-  if ('deny' in r && r.deny) {
-    $.ui.toast(`Cannot scroll there: ${String(r.deny).slice(0, 120)}`)
-  }
+  $.ui.toast('deny' in r && r.deny ? `Cannot scroll there: ${String(r.deny).slice(0, 120)}` : `↳ "${cut(match, 30)}"`)
 }
+
+// Text split around every occurrence of q (case-insensitive): [text, isMatch][]
+function splitHits(text: string, q: string): [string, boolean][] {
+  if (q === '') {
+    return [[text, false]]
+  }
+  const out: [string, boolean][] = []
+  const low = text.toLowerCase()
+  let last = 0
+  for (let pos = low.indexOf(q); pos !== -1; pos = low.indexOf(q, pos + q.length)) {
+    if (pos > last) {
+      out.push([text.slice(last, pos), false])
+    }
+    out.push([text.slice(pos, pos + q.length), true])
+    last = pos + q.length
+  }
+  if (last < text.length) {
+    out.push([text.slice(last), false])
+  }
+  return out
+}
+
+// Markdown shown as plain text, for a paragraph drawn with highlights
+const plainMd = (s: string) =>
+  s
+    .replace(/\*\*|__|`/g, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 
 // /cockpit and /sidebar: refresh and open the panel
 async function openCommand($: EngineInterface) {
@@ -1328,6 +1370,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     const { Box, Text } = $.ui.resolve(e)
+    const hq = ((await read($, search))?.query ?? '').toLowerCase()
 
     // a /command line passes through here only as a provisional copy, then Claude Code
     // redraws it by itself: coloring it would only cause a flicker (verified 2026-11-18)
@@ -1339,7 +1382,17 @@ export const register: Register = (on, options) => {
       <Box flexDirection="row" marginTop={1} marginRight={GAP}>
         <Box width={1} backgroundColor={BLUE} />
         <Box flexGrow={1} backgroundColor={USER_BG} paddingX={2} paddingY={1}>
-          <Text>{e.props.text}</Text>
+          <Text>
+            {splitHits(e.props.text, hq).map(([t, hit]) =>
+              hit ? (
+                <Text backgroundColor={HL_BG} color={HL_FG} bold>
+                  {t}
+                </Text>
+              ) : (
+                t
+              ),
+            )}
+          </Text>
         </Box>
       </Box>
     )
@@ -1357,6 +1410,37 @@ export const register: Register = (on, options) => {
       return <Box paddingRight={GAP}>{await next(e)}</Box>
     }
     // pieces in order: text, ``` blocks and tables (tables only outside code)
+    const hq = ((await read($, search))?.query ?? '').toLowerCase()
+    const mark = (text: string) =>
+      splitHits(text, hq).map(([t, hit]) =>
+        hit ? (
+          <Text backgroundColor={HL_BG} color={HL_FG} bold>
+            {t}
+          </Text>
+        ) : (
+          t
+        ),
+      )
+    // markdown as usual; while a search is on, paragraphs holding it are drawn as plain
+    // text with the occurrences highlighted
+    const prose = (md: string) =>
+      hq === '' || !md.toLowerCase().includes(hq) ? (
+        <Markdown text={md} />
+      ) : (
+        <Box flexDirection="column">
+          {md.split(/\n{2,}/).map((para, n) =>
+            para.toLowerCase().includes(hq) ? (
+              <Box marginTop={n === 0 ? 0 : 1}>
+                <Text>{mark(plainMd(para))}</Text>
+              </Box>
+            ) : (
+              <Box marginTop={n === 0 ? 0 : 1}>
+                <Markdown text={para} />
+              </Box>
+            ),
+          )}
+        </Box>
+      )
     const pieces = splitCode(e.props.text)
       .flatMap(p => (p.code === undefined ? splitTables(p.text) : [p]))
       .flatMap(p => (p.code === undefined && p.table === undefined ? splitLabels(p.text) : [p]))
@@ -1423,7 +1507,7 @@ export const register: Register = (on, options) => {
                                 color={r === 0 ? BLUE : undefined}
                                 bold={r === 0}
                               >
-                                {cell}
+                                {mark(cell)}
                               </Text>
                             </Text>
                           ))}
@@ -1442,7 +1526,7 @@ export const register: Register = (on, options) => {
               return (
                 <Box marginTop={prev === undefined ? 0 : 1}>
                   <Text bold color={ACCENT}>
-                    {p.label}
+                    {mark(p.label)}
                   </Text>
                 </Box>
               )
@@ -1456,7 +1540,7 @@ export const register: Register = (on, options) => {
                     <Text color={ACCENT}>{p.marker}</Text>
                   </Box>
                   <Box flexGrow={1} flexShrink={1}>
-                    <Markdown text={p.text} />
+                    {prose(p.text)}
                   </Box>
                 </Box>
               )
@@ -1464,7 +1548,7 @@ export const register: Register = (on, options) => {
 
             return (
               <Box width={proseW} marginTop={top}>
-                <Markdown text={p.text} />
+                {prose(p.text)}
               </Box>
             )
           })}
