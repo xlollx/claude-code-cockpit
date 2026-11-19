@@ -8,6 +8,8 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 
 ### Side panel (`/cockpit`, alias `/sidebar`)
 
+<img src="docs/panel-where-model.png" alt="The panel: where you are (folder, Azure, kubectl, git) and the model and effort buttons" width="320" align="right">
+
 | Section | Shows |
 |---|---|
 | Where you are | folder, Azure subscription and tenant, kubectl context and namespace, git branch with uncommitted changes ● and commits ↑ to push / ↓ to pull (red when it looks like production) |
@@ -25,6 +27,8 @@ A Claude Code mod for the terminal: an operational side panel that shows where y
 - Click a section title to fold or unfold it (remembered across sessions).
 - At the bottom: the Claude Code version, pinned to the panel's bottom edge.
 - In a wide terminal the panel sits on the side; in a narrow one it becomes a two-line bar above the prompt.
+
+![Searching "kube": hits in the panel, newest first, and the match highlighted in the chat](docs/search.png)
 
 ### Chat
 
