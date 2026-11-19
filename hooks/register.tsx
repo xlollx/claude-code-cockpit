@@ -187,7 +187,7 @@ let CODE_BAR = '#98c379'
 // free columns between the chat and the sidebar
 const GAP = 3
 // line between one turn and the next: slightly lighter than the background
-let CODE_INLINE = '#7fd6c2'
+let CODE_INLINE = '#e5c07b'
 let HL_BG = '#6b5310'
 let HL_FG = '#ffe28a'
 let TURN_RULE = '#3a3a40'
@@ -700,12 +700,12 @@ const PALETTES = {
   dark: {
     PANE_BG: '#262626', ACCENT: '#f5a97f', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
     USER_BG: '#2b2b2f', CODE_BG: '#262629', CODE_BAR: '#98c379', TURN_RULE: '#3a3a40',
-    HEAD_BG: '#33334a', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#ffe28a', CODE_INLINE: '#7fd6c2',
+    HEAD_BG: '#33334a', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#ffe28a', CODE_INLINE: '#e5c07b',
   },
   light: {
     PANE_BG: '#ececec', ACCENT: '#c2410c', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',
     USER_BG: '#eef2f7', CODE_BG: '#f4f4f5', CODE_BAR: '#16a34a', TURN_RULE: '#d4d4d8',
-    HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f', CODE_INLINE: '#0f766e',
+    HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f', CODE_INLINE: '#a16207',
   },
 }
 
