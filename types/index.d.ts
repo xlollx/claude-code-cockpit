@@ -44,6 +44,15 @@ export type PullRequest = {
   ci: 'passed' | 'failed' | 'running' | 'none'
 }
 
+/** Result of a search over the session's messages; hits newest first, `page` of 6 */
+export type SearchResult = {
+  query: string
+  total: number
+  inMessages: number
+  page: number
+  hits: { role: 'user' | 'assistant'; msg: number; before: string; match: string; after: string; probe: string }[]
+}
+
 /** One item of Claude's task list */
 export type TaskItem = { id: string; subject: string; status: 'pending' | 'in_progress' | 'completed' }
 
@@ -73,6 +82,8 @@ declare module 'claude-code' {
       pr: Shaped<PullRequest | null>
       /** Claude's task list in this session */
       tasks: Shaped<TaskItem[]>
+      /** last search in the session's messages */
+      search: Shaped<SearchResult | null>
     }
   }
 }

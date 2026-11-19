@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { FileEdit, ModelChoice, PullRequest, Reminder, TaskItem, Usage, Where, WriteCmd } from '../types'
+import type { FileEdit, ModelChoice, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
@@ -30,6 +30,7 @@ const modes = atom({ plugin: 'cockpit', key: 'modes' } as const, [], { shape: 'm
 const models = atom({ plugin: 'cockpit', key: 'models' } as const, [] as ModelChoice[], { shape: 'models-1' })
 const pr = atom({ plugin: 'cockpit', key: 'pr' } as const, null as PullRequest | null, { shape: 'pr-1' })
 const tasks = atom({ plugin: 'cockpit', key: 'tasks' } as const, [] as TaskItem[], { shape: 'tasks-1' })
+const search = atom({ plugin: 'cockpit', key: 'search' } as const, null as SearchResult | null, { shape: 'search-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -40,6 +41,18 @@ const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
   ponytail: { label: 'ponytail', stop: 'stop ponytail' },
 }
 const modeName = (m: string) => m.split(' ')[0] ?? m
+
+// The same modes asked for in words in a prompt (English or Italian)
+const MODE_ON: Record<string, RegExp> = {
+  'i-have-adhd': /\b(?:i[- ]have[- ]adhd|adhd)(?:[- ]mode)?\s*[:=]?\s*(?:on|attiva|attivo|attivala)\b|\b(?:attiva|accendi)\s+(?:la\s+)?(?:modalit[aà]\s+)?adhd\b/,
+  caveman: /\bcaveman(?:[- ]mode)?\s*[:=]?\s*(?:on|attiva|attivo)\b|\btalk like (?:a )?caveman\b/,
+  ponytail: /\bponytail(?:[- ]mode)?\s*[:=]?\s*(?:on|attiva|attivo)\b/,
+}
+const MODE_OFF: Record<string, RegExp> = {
+  'i-have-adhd': /\b(?:i[- ]have[- ]adhd|adhd)(?:[- ]mode)?\s*[:=]?\s*(?:off|disattiva|spenta|spento)\b|\b(?:disattiva|spegni)\s+(?:la\s+)?(?:modalit[aà]\s+)?adhd\b/,
+  caveman: /\bcaveman(?:[- ]mode)?\s*[:=]?\s*(?:off|disattiva)\b/,
+  ponytail: /\bponytail(?:[- ]mode)?\s*[:=]?\s*(?:off|disattiva)\b/,
+}
 
 // Turns a mode on/off from the skill name and its arguments
 async function applyMode($: EngineInterface, skill: string, args: string) {
@@ -650,7 +663,7 @@ const PALETTES = {
 
 // option name of a section -> id used for its folded state
 const SECTION_IDS: Record<string, string> = {
-  where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
+  search: 'search', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
   actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file',
 }
 let HIDDEN = new Set<string>()
@@ -1043,6 +1056,81 @@ async function trackTasks($: EngineInterface, tool: string, input: Record<string
   )
 }
 
+// Transcript rows drawn so far (requestId + text), to scroll to a search hit
+const ROWS: { id: string; text: string }[] = []
+function rememberRow(id: string, text: string) {
+  if (text.trim() === '' || ROWS.some(r => r.id === id && r.text === text)) {
+    return
+  }
+  const i = ROWS.findIndex(r => r.id === id)
+  if (i !== -1) {
+    ROWS.splice(i, 1)
+  }
+  ROWS.push({ id, text: text.toLowerCase() })
+  if (ROWS.length > 3000) {
+    ROWS.shift()
+  }
+}
+
+// Text a person reads in a message: no system reminders or command wrappers
+const readable = (t: string) =>
+  t
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ')
+    .replace(/<(command-[a-z]+|local-command-[a-z]+)>[\s\S]*?<\/\1>/g, ' ')
+
+// Searches the session's messages (your prompts and Claude's replies) for `q`
+async function runSearch($: EngineInterface, q: string) {
+  const query = q.trim()
+  if (query === '') {
+    await update($, search, () => null)
+    return
+  }
+  const ql = query.toLowerCase()
+  const msgs = await $.session.messages()
+  const hits: SearchResult['hits'] = []
+  let total = 0
+  let inMessages = 0
+  msgs.forEach((m, i) => {
+    const text = readable(m.text)
+    const low = text.toLowerCase()
+    let pos = low.indexOf(ql)
+    if (pos !== -1) {
+      inMessages++
+    }
+    while (pos !== -1) {
+      total++
+      if (hits.length < 200) {
+        const from = Math.max(0, pos - 30)
+        hits.push({
+          role: m.role,
+          msg: i,
+          before: (from > 0 ? '…' : '') + text.slice(from, pos).replace(/\s+/g, ' '),
+          match: text.slice(pos, pos + query.length),
+          after: text.slice(pos + query.length, pos + query.length + 60).replace(/\s+/g, ' '),
+          probe: low.slice(Math.max(0, pos - 15), pos + ql.length + 15),
+        })
+      }
+      pos = low.indexOf(ql, pos + ql.length)
+    }
+  })
+  // newest first: the latest occurrence is usually the one you look for
+  hits.reverse()
+  await update($, search, () => ({ query, total, inMessages, hits, page: 0 }))
+}
+
+// Scrolls the transcript to the row that holds a hit, if it has been drawn
+async function jumpTo($: EngineInterface, probe: string, match: string) {
+  const row = [...ROWS].reverse().find(r => r.text.includes(probe)) ?? [...ROWS].reverse().find(r => r.text.includes(match.toLowerCase()))
+  if (row === undefined) {
+    $.ui.toast('That message is not on screen any more (compacted or not drawn yet)')
+    return
+  }
+  const r = await $.ui.scroll({ to: { requestId: row.id }, block: 'center' })
+  if ('deny' in r && r.deny) {
+    $.ui.toast(`Cannot scroll there: ${String(r.deny).slice(0, 120)}`)
+  }
+}
+
 // /cockpit and /sidebar: refresh and open the panel
 async function openCommand($: EngineInterface) {
   await refreshAll($)
@@ -1127,8 +1215,18 @@ export const register: Register = (on, options) => {
       await update($, modes, () => [])
     } else {
       const stopped = Object.values(MODE_SKILLS).filter(s => t.includes(s.stop)).map(s => s.label)
+      for (const [label, rx] of Object.entries(MODE_OFF)) {
+        if (rx.test(t)) {
+          stopped.push(label)
+        }
+      }
       if (stopped.length > 0) {
         await update($, modes, ms => ms.filter(m => !stopped.includes(modeName(m))))
+      }
+      // a mode asked for in words ("adhd mode on"), not only with /skill
+      const started = Object.entries(MODE_ON).filter(([label, rx]) => !stopped.includes(label) && rx.test(t)).map(([label]) => label)
+      if (started.length > 0) {
+        await update($, modes, ms => [...ms, ...started.filter(l => !ms.some(m => modeName(m) === l))])
       }
     }
     // "ultracode" in the prompt authorizes multi-agent workflows for that request:
@@ -1223,6 +1321,7 @@ export const register: Register = (on, options) => {
   // Commands (/command, !bash) and their outputs: same box with a purple bar,
   // around the line the engine draws, so its formatting is preserved.
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    rememberRow(e.requestId, e.props.text)
     if (!(await read($, enabled)) || e.props.origin.kind !== 'composer' || e.props.text.trim() === '') {
       return next(e)
     }
@@ -1247,6 +1346,7 @@ export const register: Register = (on, options) => {
   // Responses with code blocks: text in normal markdown, each ``` block
   // in a box with a green bar and dark background, highlighted by language
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    rememberRow(e.requestId, e.props.text)
     if (!(await read($, enabled))) {
       return next(e)
     }
@@ -1418,7 +1518,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const { Box, Button, Input, Text } = $.ui.resolve(e)
     const u = await read($, usage)
     const eff = await read($, effort)
     const w = await read($, where)
@@ -1434,6 +1534,7 @@ export const register: Register = (on, options) => {
     const today = localStamp(await $.clock.now())
     const pull = await read($, pr)
     const tl = await read($, tasks)
+    const found = await read($, search)
     const prodAz = isProd(w.azSub)
     const prodKube = isProd(w.kube)
     const prodGit = w.branch === 'main' || w.branch === 'master'
@@ -1585,6 +1686,51 @@ export const register: Register = (on, options) => {
               ))}
             </Box>
             <Text dimColor>{cut(u?.model ?? '', cols)}</Text>
+          </Box>,
+        )}
+
+        {section('search', 'Search', ACCENT, found?.total,
+          <Box flexDirection="column">
+            <Input
+              key="search-input"
+              placeholder="text to find, Enter (Esc to leave)"
+              value={found?.query ?? ''}
+              submitLabel="search"
+              onSubmit={q => void runSearch($, q)}
+            />
+            {found !== null && found.total === 0 && <Text dimColor>no match for "{cut(found.query, cols - 16)}"</Text>}
+            {found !== null && found.total > 0 && (
+              <Box flexDirection="column">
+                <Text dimColor>
+                  {found.total} match{found.total === 1 ? '' : 'es'} in {found.inMessages} message{found.inMessages === 1 ? '' : 's'}, newest first
+                </Text>
+                {found.hits.slice(found.page * 6, found.page * 6 + 6).map((h, n) => (
+                  <Button key={`hit-${found.page}-${n}`} plain onPress={() => void jumpTo($, h.probe, h.match)}>
+                    <Text>
+                      <Text color={h.role === 'user' ? BLUE : VIOLET}>{h.role === 'user' ? 'you ' : 'claude '}</Text>
+                      <Text dimColor>{cut(h.before, 24)}</Text>
+                      <Text bold color={ACCENT}>{h.match}</Text>
+                      <Text dimColor>{cut(h.after, Math.max(10, cols - 34 - h.match.length))}</Text>
+                    </Text>
+                  </Button>
+                ))}
+                <Box flexDirection="row">
+                  {found.page > 0 && (
+                    <Button key="hits-prev" plain onPress={() => void update($, search, r => (r === null ? r : { ...r, page: r.page - 1 }))}>
+                      <Text dimColor>{' ‹ newer '}</Text>
+                    </Button>
+                  )}
+                  {(found.page + 1) * 6 < found.hits.length && (
+                    <Button key="hits-next" plain onPress={() => void update($, search, r => (r === null ? r : { ...r, page: r.page + 1 }))}>
+                      <Text dimColor>{' older › '}</Text>
+                    </Button>
+                  )}
+                  <Button key="hits-clear" plain onPress={() => void update($, search, () => null)}>
+                    <Text dimColor>{' clear '}</Text>
+                  </Button>
+                </Box>
+              </Box>
+            )}
           </Box>,
         )}
 
