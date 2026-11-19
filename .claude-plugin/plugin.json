@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -37,6 +37,12 @@
       "title": "Open on start",
       "description": "Open the panel when a session starts",
       "default": true
+    },
+    "inlineCodeColor": {
+      "type": "string",
+      "title": "Inline code colour",
+      "description": "Colour of `inline code` in replies, as #rrggbb; empty uses the palette's",
+      "default": ""
     }
   }
 }

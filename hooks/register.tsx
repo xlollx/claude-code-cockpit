@@ -186,6 +186,7 @@ let CODE_BAR = '#98c379'
 // free columns between the chat and the sidebar
 const GAP = 3
 // line between one turn and the next: slightly lighter than the background
+let CODE_INLINE = '#7fd6c2'
 let HL_BG = '#6b5310'
 let HL_FG = '#ffe28a'
 let TURN_RULE = '#3a3a40'
@@ -654,12 +655,12 @@ const PALETTES = {
   dark: {
     PANE_BG: '#262626', ACCENT: '#f5a97f', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
     USER_BG: '#2b2b2f', CODE_BG: '#262629', CODE_BAR: '#98c379', TURN_RULE: '#3a3a40',
-    HEAD_BG: '#33334a', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#ffe28a',
+    HEAD_BG: '#33334a', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#ffe28a', CODE_INLINE: '#7fd6c2',
   },
   light: {
     PANE_BG: '#ececec', ACCENT: '#c2410c', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',
     USER_BG: '#eef2f7', CODE_BG: '#f4f4f5', CODE_BAR: '#16a34a', TURN_RULE: '#d4d4d8',
-    HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f',
+    HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f', CODE_INLINE: '#0f766e',
   },
 }
 
@@ -674,7 +675,7 @@ let OPEN_ON_START = true
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
-  ;({ PANE_BG, ACCENT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG } = pal)
+  ;({ PANE_BG, ACCENT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE } = pal)
   const width = Number(options.proseWidth)
   // 0 (default) = the whole chat width; 40 or more = wrap reply text at that column
   PROSE_MAX = Number.isFinite(width) && width >= 40 ? Math.round(width) : Number.POSITIVE_INFINITY
@@ -690,6 +691,9 @@ function applyOptions(options: Readonly<Record<string, unknown>>) {
       .filter((x): x is string => x !== undefined),
   )
   OPEN_ON_START = options.openOnStart !== false
+  if (typeof options.inlineCodeColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(options.inlineCodeColor)) {
+    CODE_INLINE = options.inlineCodeColor
+  }
 }
 
 const kTok = (n?: number) => (n === undefined ? '?' : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`)
@@ -1423,24 +1427,68 @@ export const register: Register = (on, options) => {
       )
     // markdown as usual; while a search is on, paragraphs holding it are drawn as plain
     // text with the occurrences highlighted
-    const prose = (md: string) =>
-      hq === '' || !md.toLowerCase().includes(hq) ? (
-        <Markdown text={md} />
-      ) : (
-        <Box flexDirection="column">
-          {md.split(/\n{2,}/).map((para, n) =>
-            para.toLowerCase().includes(hq) ? (
-              <Box marginTop={n === 0 ? 0 : 1}>
-                <Text>{mark(plainMd(para))}</Text>
-              </Box>
-            ) : (
-              <Box marginTop={n === 0 ? 0 : 1}>
-                <Markdown text={para} />
-              </Box>
-            ),
-          )}
-        </Box>
+    // One line of prose: `code` in the inline-code colour, **bold**, search matches marked
+    const inline = (line: string) =>
+      line.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/).map(tok =>
+        tok.startsWith('`') && tok.endsWith('`') && tok.length > 2 ? (
+          <Text color={CODE_INLINE}>{mark(tok.slice(1, -1))}</Text>
+        ) : tok.startsWith('**') && tok.endsWith('**') && tok.length > 4 ? (
+          <Text bold>{mark(tok.slice(2, -2))}</Text>
+        ) : (
+          mark(tok)
+        ),
       )
+    // A paragraph the mod draws itself: lines with bullets, headings and quotes kept.
+    // Anything richer (links, italics, html, strikethrough) stays with the engine's markdown
+    const simple = (para: string) => !/\]\(|<[a-z/]|~~|(^|[^*])\*[^*\s][^*]*\*(?!\*)|(^|\s)_[^_]+_(\s|$)/i.test(para)
+    const ownPara = (para: string) => (
+      <Box flexDirection="column">
+        {para.split('\n').map(line => {
+          const b = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line)
+          if (b) {
+            const pad = (b[1] ?? '').length
+            const bullet = /\d/.test(b[2] ?? '') ? `${b[2]} ` : '– '
+            return (
+              <Box flexDirection="row" marginLeft={pad}>
+                <Box width={bullet.length} flexShrink={0}>
+                  <Text dimColor>{bullet}</Text>
+                </Box>
+                <Box flexGrow={1} flexShrink={1}>
+                  <Text>{inline(b[3] ?? '')}</Text>
+                </Box>
+              </Box>
+            )
+          }
+          const hd = /^#{1,6}\s+(.*)$/.exec(line)
+          if (hd) {
+            return (
+              <Text bold color={ACCENT}>
+                {inline(hd[1] ?? '')}
+              </Text>
+            )
+          }
+          const qt = /^>\s?(.*)$/.exec(line)
+          if (qt) {
+            return (
+              <Text>
+                <Text dimColor>│ </Text>
+                <Text dimColor>{inline(qt[1] ?? '')}</Text>
+              </Text>
+            )
+          }
+          return <Text>{inline(line)}</Text>
+        })}
+      </Box>
+    )
+    const prose = (md: string) => (
+      <Box flexDirection="column">
+        {md.split(/\n{2,}/).map((para, n) => (
+          <Box marginTop={n === 0 ? 0 : 1}>
+            {simple(para) ? ownPara(para) : hq !== '' && para.toLowerCase().includes(hq) ? <Text>{mark(plainMd(para))}</Text> : <Markdown text={para} />}
+          </Box>
+        ))}
+      </Box>
+    )
     const pieces = splitCode(e.props.text)
       .flatMap(p => (p.code === undefined ? splitTables(p.text) : [p]))
       .flatMap(p => (p.code === undefined && p.table === undefined ? splitLabels(p.text) : [p]))
