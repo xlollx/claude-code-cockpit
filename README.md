@@ -7,6 +7,8 @@ A Claude Code mod for the terminal. It adds two things:
 
 The look is inspired by OpenCode.
 
+> **Status: early preview.** Built and used daily on Windows Terminal with Claude Code 2.1.327. Verified there: the panel, search, model and effort buttons, active modes, context, paste image, copy code and copy table, and the chat styling. **Not fully tested yet**: the Pipelines, Write commands, Pull request and Tasks sections, the reminder buttons, the `light` palette, `hiddenSections`/`openOnStart`, and macOS and Linux. Issues and reports are welcome.
+
 ![The side panel next to a reply with a heading and a numbered list](docs/panel-and-plan.png)
 
 ## Install
@@ -217,6 +219,15 @@ None of these is required; each section stays hidden or empty when its source is
 - **Pipelines** need the Azure CLI (`az login`).
 - **Pull requests** need git credentials for GitHub or Azure DevOps already stored by Git Credential Manager.
 - **Active modes** follows the skills `i-have-adhd`, `caveman` and `ponytail` when they are installed; other skills are not tracked.
+
+## What the mod runs and sends
+
+So you know what you are trusting:
+
+- **Processes**: `git` (branch, status, remote, and `git credential fill` to read the token git already stores), `az account get-access-token` (only when Azure DevOps projects are watched), PowerShell on Windows / `osascript` on macOS / `wl-copy`, `wl-paste` or `xclip` on Linux (only when you press a copy or paste button). They run in every folder you open Claude Code in. On Windows each command is looked up by absolute path in `PATH`, never in the current folder, so a repository cannot ship its own `git.exe` or `az.cmd` to be run.
+- **Network**: only GET requests, only to `api.github.com` and `dev.azure.com`. The host is fixed in the code; a git remote or a command can choose the organization or repository, never the host. Tokens stay in memory and are never shown, logged or written to disk.
+- **Files written**: the reminders file (only when you press `✓ done` or `+1 day`) and the pasted image (in `%TEMP%\claude-cockpit\` on Windows, in a private `mktemp -d` folder on macOS and Linux).
+- The Write commands list is a reminder of what you ran, not a security control: a command wrapped in a script or `bash -c` is not seen.
 
 ## Extras
 

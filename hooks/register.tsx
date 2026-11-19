@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderNode, SessionRateLimit } from 'claude-code'
+import type { EngineInterface, ProcessRunInit, Register, RenderNode, SessionRateLimit } from 'claude-code'
 
 import type { FileEdit, ModelChoice, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
@@ -446,7 +446,7 @@ const PASTE_PS = [
   "if ($files.Count -gt 0) { 'file:' + $files[0]; exit 0 }",
   '$img = [Windows.Forms.Clipboard]::GetImage()',
   "if ($null -eq $img) { 'none'; exit 0 }",
-  '$null = New-Item -ItemType Directory -Force -Path (Split-Path $p)',
+  '$null = New-Item -ItemType Directory -Force -Path (Split-Path -LiteralPath $p)',
   '$img.Save($p, [Drawing.Imaging.ImageFormat]::Png)',
   "'ok:' + $p",
 ].join('\n')
@@ -461,20 +461,21 @@ async function pasteImage($: EngineInterface) {
     if (os === 'windows') {
       const tmp = (await $.env.get('TEMP')) ?? `${await home($)}/AppData/Local/Temp`
       const target = `${tmp}\\claude-cockpit\\clip-${stamp}.png`
-      const r = await $.process.run(
+      const r = await run($, 
         ['powershell.exe', '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', PASTE_PS],
         { stdin: target + '\n', timeoutMs: 20000 },
       )
       const out = r.stdout.trim()
       path = out.startsWith('ok:') ? out.slice(3) : out.startsWith('file:') ? out.slice(5) : undefined
     } else {
-      const target = `/tmp/claude-cockpit/clip-${stamp}.png`
+      // private folder from mktemp (mode 700, unpredictable name): never a shared /tmp path
+      const mk = `d=$(mktemp -d "\${TMPDIR:-/tmp}/claude-cockpit.XXXXXX") && f="$d/clip-${stamp}.png"`
       const sh =
         os === 'mac'
-          ? `mkdir -p /tmp/claude-cockpit && osascript -e 'set f to open for access (POSIX file "${target}") with write permission' -e 'write (the clipboard as «class PNGf») to f' -e 'close access f'`
-          : `mkdir -p /tmp/claude-cockpit && (wl-paste --type image/png > '${target}' 2>/dev/null || xclip -selection clipboard -t image/png -o > '${target}') && [ -s '${target}' ]`
-      const r = await $.process.run(['sh', '-c', sh], { timeoutMs: 20000 })
-      path = r.exitCode === 0 ? target : undefined
+          ? `${mk} && osascript -e 'on run argv' -e 'set f to open for access (POSIX file (item 1 of argv)) with write permission' -e 'write (the clipboard as «class PNGf») to f' -e 'close access f' -e 'end run' "$f" && echo "$f"`
+          : `${mk} && (wl-paste --type image/png > "$f" 2>/dev/null || xclip -selection clipboard -t image/png -o > "$f") && [ -s "$f" ] && echo "$f"`
+      const r = await run($, ['sh', '-c', sh], { timeoutMs: 20000 })
+      path = r.exitCode === 0 && r.stdout.trim() !== '' ? r.stdout.trim() : undefined
     }
     if (path === undefined) {
       $.ui.toast('No image in the clipboard')
@@ -501,7 +502,7 @@ async function copyTable($: EngineInterface, t: Table) {
     if (os === 'windows') {
       // HTML + tab-separated text in one clipboard entry, via PowerShell (STA)
       const json = JSON.stringify({ html, tsv }).replace(/[\u007f-￿]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
-      const r = await $.process.run(
+      const r = await run($, 
         ['powershell.exe', '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', CLIP_PS],
         { stdin: json, timeoutMs: 20000 },
       )
@@ -512,14 +513,14 @@ async function copyTable($: EngineInterface, t: Table) {
       // HTML + plain text in one clipboard entry, via AppleScript
       const str = tsv.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
       const script = `set the clipboard to {«class HTML»:«data HTML${utf8Hex(html)}», string:"${str}"}`
-      const r = await $.process.run(['osascript', '-'], { stdin: script, timeoutMs: 20000 })
+      const r = await run($, ['osascript', '-'], { stdin: script, timeoutMs: 20000 })
       $.ui.toast(r.exitCode === 0 ? ok : `Copy failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}`)
       return
     }
     // Linux: HTML through wl-copy (Wayland) or xclip (X11)
     for (const argv of [['wl-copy', '--type', 'text/html'], ['xclip', '-selection', 'clipboard', '-t', 'text/html']]) {
       try {
-        const r = await $.process.run(argv, { stdin: html, timeoutMs: 20000 })
+        const r = await run($, argv, { stdin: html, timeoutMs: 20000 })
         if (r.exitCode === 0) {
           $.ui.toast(ok)
           return
@@ -545,6 +546,49 @@ async function platform($: EngineInterface): Promise<'windows' | 'mac' | 'linux'
   } catch {
     return 'linux'
   }
+}
+
+// Absolute path of a command, looked up in PATH only. On Windows a bare name is searched in the
+// current folder first, so a cloned repo holding its own git.exe or az.cmd would run instead
+const BIN: Record<string, string> = {}
+
+async function bin($: EngineInterface, name: string): Promise<string> {
+  const known = BIN[name]
+  if (known !== undefined) {
+    return known
+  }
+  const path = (await $.env.get('PATH')) ?? (await $.env.get('Path')) ?? ''
+  const exts = ((await $.env.get('PATHEXT')) ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(x => x !== '')
+  for (const raw of path.split(';')) {
+    const dir = raw.trim().replace(/^"|"$/g, '').replace(/[\\/]+$/, '')
+    if (!/^([a-z]:|\\\\)/i.test(dir)) {
+      continue // relative entries ('.', '') would mean the current folder
+    }
+    for (const ext of /\.[a-z]+$/i.test(name) ? [''] : exts) {
+      const full = `${dir}\\${name}${ext}`
+      if (await $.fs.exists(full)) {
+        BIN[name] = full
+        return full
+      }
+    }
+  }
+  throw new Error(`${name} not found in PATH`)
+}
+
+// $.process.run with the command resolved to an absolute path on Windows; a .cmd/.bat (az) runs
+// through cmd.exe from its own folder, so cmd cannot pick up a same-named file elsewhere
+async function run($: EngineInterface, argv: readonly string[], init?: ProcessRunInit) {
+  if ((await platform($)) !== 'windows') {
+    return $.process.run(argv, init)
+  }
+  const [name = '', ...rest] = argv
+  const exe = await bin($, name)
+  if (/\.(cmd|bat)$/i.test(exe)) {
+    const root = (await $.env.get('SystemRoot')) ?? (await $.env.get('SYSTEMROOT')) ?? 'C:\\Windows'
+    const cut = exe.lastIndexOf('\\')
+    return $.process.run([`${root}\\System32\\cmd.exe`, '/d', '/c', exe.slice(cut + 1), ...rest], { ...init, cwd: exe.slice(0, cut) })
+  }
+  return $.process.run([exe, ...rest], init)
 }
 
 // UTF-8 bytes of a string as uppercase hex (AppleScript «data HTML...»)
@@ -796,13 +840,13 @@ async function refreshWhere($: EngineInterface) {
   }
 
   try {
-    const b = await $.process.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], { timeoutMs: 5000 })
+    const b = await run($, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], { timeoutMs: 5000 })
     if (b.exitCode === 0) {
       w.branch = b.stdout.trim()
-      const s = await $.process.run(['git', 'status', '--porcelain'], { timeoutMs: 10000 })
+      const s = await run($, ['git', 'status', '--porcelain'], { timeoutMs: 10000 })
       w.dirty = s.stdout.split('\n').filter(l => l.trim()).length
       // "<behind>\t<ahead>" relative to the upstream; no upstream = exit != 0
-      const ab = await $.process.run(['git', 'rev-list', '--left-right', '--count', '@{u}...HEAD'], { timeoutMs: 5000 })
+      const ab = await run($, ['git', 'rev-list', '--left-right', '--count', '@{u}...HEAD'], { timeoutMs: 5000 })
       if (ab.exitCode === 0) {
         const [behind, ahead] = ab.stdout.trim().split(/\s+/).map(Number)
         w.behind = behind
@@ -917,7 +961,7 @@ function base64(s: string) {
 // Token git already holds for the host (Git Credential Manager), never prompting
 async function gitToken($: EngineInterface, host: string, path?: string) {
   try {
-    const r = await $.process.run(['git', 'credential', 'fill'], {
+    const r = await run($, ['git', 'credential', 'fill'], {
       stdin: `protocol=https\nhost=${host}\n${path ? `path=${path}\n` : ''}\n`,
       env: { GCM_INTERACTIVE: 'never', GIT_TERMINAL_PROMPT: '0' },
       timeoutMs: 10000,
@@ -946,7 +990,7 @@ async function refreshPr($: EngineInterface) {
   }
   let remote: Remote | undefined
   try {
-    const r = await $.process.run(['git', 'remote', 'get-url', 'origin'], { timeoutMs: 5000 })
+    const r = await run($, ['git', 'remote', 'get-url', 'origin'], { timeoutMs: 5000 })
     remote = r.exitCode === 0 ? parseRemote(r.stdout.trim()) : undefined
   } catch {
     remote = undefined
@@ -1196,19 +1240,33 @@ const WATCHED = new Set<string>()
 let ADO_DEFAULT_ORG = ''
 const ADO_RX = /dev\.azure\.com\/([^/\s'"]+)\/([^/\s'"?]+)/g
 
+// org and project names as Azure DevOps allows them; anything else is ignored
+const ADO_ORG = /^[A-Za-z0-9][A-Za-z0-9-]{0,49}$/
+const ADO_PROJECT = /^[^/\\:*?"<>|#%&;$@^{}[\]+=,`~']{1,64}$/
+
+function decode(x: string) {
+  try {
+    return decodeURIComponent(x)
+  } catch {
+    return ''
+  }
+}
+
+function watch(org: string, project: string) {
+  if (ADO_ORG.test(org) && ADO_PROJECT.test(project) && !project.startsWith('_') && WATCHED.size < 12) {
+    WATCHED.add(`${org}/${project}`)
+  }
+}
+
 function watchFrom(text: string) {
   for (const m of text.matchAll(ADO_RX)) {
-    const org = m[1] ?? ''
-    const project = decodeURIComponent(m[2] ?? '')
-    if (org !== '' && project !== '' && !project.startsWith('_')) {
-      WATCHED.add(`${org}/${project}`)
-    }
+    watch(m[1] ?? '', decode(m[2] ?? ''))
   }
   const org = /--org(?:anization)?\s+['"]?https:\/\/dev\.azure\.com\/([^/\s'"]+)/.exec(text)?.[1]
   const project = /(?:--project|\s-p)\s+(?:'([^']+)'|"([^"]+)"|(\S+))/.exec(text)
   const name = project?.[1] ?? project?.[2] ?? project?.[3]
   if (org && name) {
-    WATCHED.add(`${org}/${name}`)
+    watch(org, name)
   }
 }
 
@@ -1227,8 +1285,7 @@ async function adoAuth($: EngineInterface, org: string) {
   if (typeof tenant === 'string' && /^[0-9a-f-]{36}$/i.test(tenant)) {
     args.push('--tenant', tenant)
   }
-  const argv = (await platform($)) === 'windows' ? ['cmd', '/c', 'az', ...args] : ['az', ...args]
-  const r = await $.process.run(argv, { timeoutMs: 30000 })
+  const r = await run($, ['az', ...args], { timeoutMs: 30000 })
   const token = r.stdout.trim()
   if (r.exitCode !== 0 || token === '') {
     throw new Error('az login needed for Azure DevOps')
@@ -1255,7 +1312,7 @@ async function refreshPipes($: EngineInterface, force = false) {
   }
   ADO_DEFAULT_ORG = ADO_DEFAULT_ORG || ([...WATCHED][0]?.split('/')[0] ?? '')
   try {
-    const r = await $.process.run(['git', 'remote', 'get-url', 'origin'], { timeoutMs: 5000 })
+    const r = await run($, ['git', 'remote', 'get-url', 'origin'], { timeoutMs: 5000 })
     if (r.exitCode === 0) {
       watchFrom(r.stdout)
       const ssh = /ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\//.exec(r.stdout)
