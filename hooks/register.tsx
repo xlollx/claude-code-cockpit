@@ -1061,6 +1061,7 @@ async function refreshPeers($: EngineInterface) {
     const alive = new Set((r.stdout.match(os === 'windows' ? /^"[^"]*","(\d+)"/gm : /\d+/g) ?? []).map(x => (/(\d+)"?$/.exec(x)?.[1] ?? '')))
     const self = await $.session.id()
     const list: Peer[] = []
+    const pidOf = new Map<string, number>()
     for (const f of await $.fs.list(dir)) {
       if (!/^\d+\.json$/.test(f.name)) {
         continue
@@ -1071,8 +1072,17 @@ async function refreshPeers($: EngineInterface) {
           continue
         }
         list.push({ sessionId: j.sessionId, name: j.name ?? String(j.pid), cwd: j.cwd ?? '', status: j.status ?? '', self: j.sessionId === self })
+        pidOf.set(j.sessionId, Number(j.pid))
       } catch {
         // a file being rewritten: next round
+      }
+    }
+    // the tab title reads better than the derived session name
+    const titles = await consoleTitles($, list.filter(x => !x.self).map(x => pidOf.get(x.sessionId) ?? 0).filter(x => x > 0))
+    for (const x of list) {
+      const t = titles.get(pidOf.get(x.sessionId) ?? 0)
+      if (t !== undefined) {
+        x.name = t
       }
     }
     list.sort((a, b) => Number(b.self) - Number(a.self) || a.name.localeCompare(b.name))
@@ -1080,6 +1090,42 @@ async function refreshPeers($: EngineInterface) {
   } catch {
     // listing is best effort
   }
+}
+
+// Windows: the title of each session's console, i.e. what its terminal tab shows (Claude Code
+// sets it to what the session is about). A helper attaches to each console in turn and reads
+// it; the script goes as -EncodedCommand (UTF-16LE base64), so no quoting reaches the shell
+const TITLES_PS = [
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+  "Add-Type -TypeDefinition 'using System; using System.Text; using System.Runtime.InteropServices; public static class CT { [DllImport(\"kernel32.dll\")] public static extern bool FreeConsole(); [DllImport(\"kernel32.dll\")] public static extern bool AttachConsole(uint p); [DllImport(\"kernel32.dll\", CharSet=CharSet.Unicode)] public static extern uint GetConsoleTitle(StringBuilder b, uint n); public static string T(uint p) { FreeConsole(); if (!AttachConsole(p)) return string.Empty; var b = new StringBuilder(1024); GetConsoleTitle(b, 1024); FreeConsole(); return b.ToString(); } }'",
+  'foreach ($p in @(PIDS)) { [Console]::Out.WriteLine([string]$p + [char]9 + [CT]::T([uint32]$p)) }',
+].join('\n')
+
+async function consoleTitles($: EngineInterface, pids: number[]) {
+  const titles = new Map<number, string>()
+  if (pids.length === 0 || (await platform($)) !== 'windows') {
+    return titles
+  }
+  const script = TITLES_PS.replace('PIDS', pids.map(String).join(','))
+  let bytes = ''
+  for (let i = 0; i < script.length; i++) {
+    const c = script.charCodeAt(i)
+    bytes += String.fromCharCode(c & 255, c >> 8)
+  }
+  try {
+    const r = await run($, ['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', base64Bytes(bytes)], { timeoutMs: 20000 })
+    for (const line of r.stdout.split(/\r?\n/)) {
+      const m = /^(\d+)\t(.*)$/.exec(line)
+      // the leading status glyph (✳, a spinner) is not part of the name
+      const t = (m?.[2] ?? '').replace(/^[^\p{L}\p{N}]+/u, '').trim()
+      if (m && t !== '') {
+        titles.set(Number(m[1]), t)
+      }
+    }
+  } catch {
+    // titles are a nicety: the session names stay
+  }
+  return titles
 }
 
 async function sendToPeer($: EngineInterface, sessionId: string, name: string, text: string) {
@@ -1165,7 +1211,11 @@ function parseRemote(url: string): Remote | undefined {
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 function base64(s: string) {
-  const bytes = encodeURIComponent(s).replace(/%([0-9A-F]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+  return base64Bytes(encodeURIComponent(s).replace(/%([0-9A-F]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))))
+}
+
+// a string of byte values (0-255) as base64
+function base64Bytes(bytes: string) {
   let out = ''
   for (let i = 0; i < bytes.length; i += 3) {
     const n = (bytes.charCodeAt(i) << 16) | ((bytes.charCodeAt(i + 1) || 0) << 8) | (bytes.charCodeAt(i + 2) || 0)
@@ -2402,7 +2452,12 @@ export const register: Register = (on, options) => {
               const qi = ++kq
               return (
                 <Box flexDirection="column" width={proseW} marginTop={top}>
-                  {prose(p.text)}
+                  <Box flexDirection="row">
+                    <Box width={1} flexShrink={0} backgroundColor={TOOL_BAR} />
+                    <Box flexDirection="column" flexGrow={1} flexShrink={1} paddingLeft={2}>
+                      {prose(quote)}
+                    </Box>
+                  </Box>
                   <Button key={`quote-${qi}`} onPress={() => void copyRich($, mdHtml(quote), mdPlain(quote), 'Text copied with its formatting: paste it into Teams, Outlook or a web form')}>
                     <Text color={BLUE}>⧉ Copy text</Text>
                   </Button>
