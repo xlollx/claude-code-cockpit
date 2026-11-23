@@ -1,5 +1,13 @@
 # claude-code-cockpit
 
+<p>
+  <a href="https://github.com/xlollx/claude-code-cockpit/stargazers"><img src="https://img.shields.io/github/stars/xlollx/claude-code-cockpit?style=flat&color=e8a33d" alt="GitHub stars"></a>
+  <a href="https://github.com/xlollx/claude-code-cockpit/commits"><img src="https://img.shields.io/github/last-commit/xlollx/claude-code-cockpit?style=flat" alt="Last commit"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat" alt="License: AGPL-3.0"></a>
+  <a href="https://ko-fi.com/xlollx"><img src="https://img.shields.io/badge/Ko--fi-support-72a4f2?style=flat&logo=kofi&logoColor=white" alt="Support me on Ko-fi"></a>
+  <a href="https://github.com/sponsors/xlollx"><img src="https://img.shields.io/badge/GitHub%20Sponsors-%E2%99%A5-ea4aaa?style=flat&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors"></a>
+</p>
+
 A Claude Code mod for the terminal. It adds two things:
 
 - an **operational side panel** that shows where you are (folder, Azure, Kubernetes, git), which model you are using, how full the context is, what is running in Azure DevOps and what you changed in the session;
@@ -290,6 +298,14 @@ Clone the repository and load the folder in every session with `CLAUDE_CODE_PLUG
 ## Roadmap
 
 Planned ideas and improvements: [ROADMAP.md](ROADMAP.md).
+
+## Support
+
+If the cockpit makes your terminal nicer, **a ⭐ on the repository** helps other people find it. The mod is free and stays free; if you want to say thanks:
+
+<a href="https://ko-fi.com/xlollx"><img src="docs/assets/badges/kofi.svg" height="28" alt="Support me on Ko-fi"></a>
+
+<sub><a href="https://ko-fi.com/xlollx">Ko-fi</a> (card or PayPal) or <a href="https://github.com/sponsors/xlollx">GitHub Sponsors</a>.</sub>
 
 ## License
 
