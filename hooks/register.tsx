@@ -2533,6 +2533,17 @@ export const register: Register = (on, options) => {
     const ns = await read($, enabled)
     const cols = Math.max(20, (e.viewport?.columns ?? 40) - 4)
     const barW = Math.max(8, Math.min(24, cols - 10))
+    const tone = (p: number) => (p >= 80 ? 'error' : p >= 60 ? 'warning' : 'success')
+    // filled part in colour, empty part as a faint track
+    const meter = (p: number, width: number, color: string) => {
+      const full = Math.round((Math.min(100, Math.max(0, p)) / 100) * width)
+      return (
+        <Text>
+          <Text color={color}>{'█'.repeat(full)}</Text>
+          <Text color={TURN_RULE}>{'█'.repeat(Math.max(0, width - full))}</Text>
+        </Text>
+      )
+    }
     const pct = u?.percent ?? 0
     const pctColor = pct >= 80 ? 'error' : pct >= 60 ? 'warning' : ACCENT
     const today = localStamp(await $.clock.now())
@@ -2565,12 +2576,18 @@ export const register: Register = (on, options) => {
 
       return (
         <Box flexDirection="column" marginBottom={1}>
-          <Button key={`sec-${id}`} plain onPress={() => void toggleSection($, id)}>
-            <Text bold color={color}>
-              {isClosed ? '▸' : '▾'} {title}
-              {count !== undefined ? <Text dimColor> ({count})</Text> : ''}
-            </Text>
-          </Button>
+          <Box flexDirection="row">
+            <Button key={`sec-${id}`} plain onPress={() => void toggleSection($, id)}>
+              <Text bold color={color}>
+                {isClosed ? '▸' : '▾'} {title}
+                {count !== undefined ? <Text dimColor> ({count})</Text> : ''}
+              </Text>
+            </Button>
+            {/* a faint rule from the title to the panel's edge, cut where the room ends */}
+            <Box flexGrow={1} flexShrink={1} marginLeft={1} overflow="hidden">
+              <Text color={TURN_RULE} wrap="clip">{'─'.repeat(160)}</Text>
+            </Box>
+          </Box>
           {!isClosed && body}
         </Box>
       )
@@ -2589,7 +2606,10 @@ export const register: Register = (on, options) => {
       // sections are short (when they are longer it follows them)
       <Box flexDirection="column" paddingLeft={6} paddingRight={2} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
         {/* next to the panel's ✕: shrink the panel to a narrow summary */}
-        <Box flexDirection="row" justifyContent="flex-end">
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+          <Text>
+            <Text color={ACCENT} bold>◆ cockpit</Text>
+          </Text>
           <Button key="compact" plain onPress={() => void toggleCompact($)}>
             <Text color={BLUE}>⇥ compact</Text>
           </Button>
@@ -2599,7 +2619,14 @@ export const register: Register = (on, options) => {
             <Box flexDirection="row">
               <Text dimColor>dir  </Text>
               <Box flexShrink={1}>
-                <Text>{w.cwd ?? '—'}</Text>
+                {w.cwd === undefined ? (
+                  <Text>—</Text>
+                ) : (
+                  <Text>
+                    <Text dimColor>{w.cwd.replace(/[^\\/]+[\\/]?$/, '')}</Text>
+                    <Text bold>{w.cwd.replace(/^.*[\\/](?=[^\\/])/, '').replace(/[\\/]$/, '') || w.cwd}</Text>
+                  </Text>
+                )}
               </Box>
             </Box>
             <Text>
@@ -2766,13 +2793,18 @@ export const register: Register = (on, options) => {
 
         {section('contesto', 'Context', BLUE, undefined,
           <Box flexDirection="column">
-            <Text color={pctColor}>{bar(pct, barW)} {Math.round(pct)}%</Text>
+            <Text>
+              {meter(pct, barW, pctColor)}
+              <Text color={pctColor} bold> {Math.round(pct)}%</Text>
+            </Text>
             <Text dimColor>
               {kTok(u?.tokens)}/{kTok(u?.window)} token
             </Text>
             {u?.limits.map(l => (
-              <Text dimColor>
-                {l.kind === 'five_hour' ? '5h limit' : l.kind === 'seven_day' ? '7d limit' : l.kind} {Math.round(l.percentUsed)}%
+              <Text>
+                <Text dimColor>{(l.kind === 'five_hour' ? '5h' : l.kind === 'seven_day' ? '7d' : l.kind).padEnd(4)}</Text>
+                {meter(l.percentUsed, Math.max(6, barW - 4), tone(l.percentUsed))}
+                <Text dimColor> {Math.round(l.percentUsed)}%</Text>
               </Text>
             ))}
             {u?.startedAt !== undefined && <Text dimColor>session {since(now - u.startedAt)}</Text>}
