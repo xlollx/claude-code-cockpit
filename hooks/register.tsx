@@ -1690,6 +1690,15 @@ async function askAside($: EngineInterface, raw: string) {
   }
 }
 
+// After a side question the keyboard goes back to the prompt, so the next thing typed lands in
+// the chat and not in the Aside field again (as Esc would). There is no call that hands the
+// keys over, but a pane that closes gives them back: close it and open it again at once,
+// without asking for the keyboard (the answer arrives in the reopened panel)
+async function giveKeysBack($: EngineInterface) {
+  await $.ui.close({ id: PANE })
+  await openPane($)
+}
+
 async function updateCockpit($: EngineInterface): Promise<string> {
   const root = $.plugin.root
   const version = async () => {
@@ -2918,7 +2927,10 @@ export const register: Register = (on, options) => {
               placeholder={narrow ? 'side question… (Enter)' : 'side question, Enter (not added to the chat)'}
               value=""
               submitLabel="ask"
-              onSubmit={q => void askAside($, q)}
+              onSubmit={q => void (async () => {
+                void askAside($, q)
+                await giveKeysBack($)
+              })()}
             />
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
