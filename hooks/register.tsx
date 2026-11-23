@@ -2043,6 +2043,28 @@ async function miniView($: EngineInterface, els: { Box: any; Button: any; Text: 
   )
 }
 
+// Slash commands are declared per session, and session.start does not run again when the mod
+// reloads after an update (git pull, /cockpit-update): a command added by the update would stay
+// unknown until a new session. So they are declared again, once per load, at the next prompt
+let COMMANDS_DONE = false
+async function registerCommands($: EngineInterface) {
+  COMMANDS_DONE = true
+  await $.command.register({ name: 'cockpit', description: 'Open the cockpit side panel' })
+  await $.command.register({ name: 'sidebar', description: 'Open the cockpit side panel (alias of /cockpit)' })
+  await $.command.register({
+    name: 'newstyle',
+    description: 'Cockpit look (side panel, prompt boxes, readable replies): on | off',
+    argumentHint: 'on | off',
+  })
+  await $.command.register({ name: 'cockpit-setup', description: 'Apply the recommended Windows Terminal look (colours, real bold), with a backup' })
+  await $.command.register({ name: 'cockpit-update', description: 'Update the cockpit mod to its latest version (git pull of a clone, or the marketplace)' })
+  await $.command.register({
+    name: 'cockpit-uninstall',
+    description: 'Uninstall the mod and put back what it changed (terminal, options, stored state); without "yes" only lists it',
+    argumentHint: 'yes',
+  })
+}
+
 export const register: Register = (on, options) => {
   applyOptions(options)
 
@@ -2054,20 +2076,7 @@ export const register: Register = (on, options) => {
     if (isOn && OPEN_ON_START && !COMPACT) {
       void openPane($)
     }
-    await $.command.register({ name: 'cockpit', description: 'Open the cockpit side panel' })
-    await $.command.register({ name: 'sidebar', description: 'Open the cockpit side panel (alias of /cockpit)' })
-    await $.command.register({
-      name: 'newstyle',
-      description: 'Cockpit look (side panel, prompt boxes, readable replies): on | off',
-      argumentHint: 'on | off',
-    })
-    await $.command.register({ name: 'cockpit-setup', description: 'Apply the recommended Windows Terminal look (colours, real bold), with a backup' })
-    await $.command.register({ name: 'cockpit-update', description: 'Update the cockpit mod to its latest version (git pull of a clone, or the marketplace)' })
-    await $.command.register({
-      name: 'cockpit-uninstall',
-      description: 'Uninstall the mod and put back what it changed (terminal, options, stored state); without "yes" only lists it',
-      argumentHint: 'yes',
-    })
+    await registerCommands($)
     await update($, enabled, () => isOn)
     const initial = await effortFromSettings($)
     await update($, effort, cur => cur ?? initial)
@@ -2137,6 +2146,9 @@ export const register: Register = (on, options) => {
   // turned off with "off", with the stop phrases, with "normal mode" or with /panic.
   // Not from skill.prompt: another plugin intercepts it first and the hook is skipped
   on('prompt.submit', async ($, e, next) => {
+    if (!COMMANDS_DONE) {
+      await registerCommands($).catch(() => undefined)
+    }
     if (e.command !== undefined) {
       await applyMode($, e.command.name, e.command.args)
       return next(e)
@@ -2185,6 +2197,9 @@ export const register: Register = (on, options) => {
   })
 
   on('session.measure', async ($, e, next) => {
+    if (!COMMANDS_DONE) {
+      void registerCommands($).catch(() => undefined)
+    }
     await measure($)
 
     return next(e)
