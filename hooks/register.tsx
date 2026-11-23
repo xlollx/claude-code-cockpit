@@ -508,6 +508,16 @@ async function copyTable($: EngineInterface, t: Table) {
   await copyRich($, html, tsv, `Table copied (${t.rows.length} rows): paste it into Teams, Outlook or Excel`)
 }
 
+// A table as text with aligned columns and a dashed line under the header: compact where an
+// app restyles pasted HTML tables (Teams), pasted into a code block
+function tableText(t: Table) {
+  const rows = [t.header, ...t.rows].map(r => r.map(cellText))
+  const n = Math.max(...rows.map(r => r.length))
+  const w = Array.from({ length: n }, (_, c) => Math.max(...rows.map(r => (r[c] ?? '').length)))
+  const line = (r: string[]) => w.map((x, c) => (r[c] ?? '').padEnd(x)).join('  ').trimEnd()
+  return [line(rows[0] ?? []), w.map(x => '-'.repeat(x)).join('  '), ...rows.slice(1).map(line)].join('\n')
+}
+
 // Inline markdown -> HTML: bold, italics, code, [links](url) and bare URLs
 function inlineHtml(md: string) {
   const urls: string[] = []
@@ -2037,9 +2047,23 @@ export const register: Register = (on, options) => {
                       ))}
                     </Box>
                   )}
-                  <Button key={`tab-${i}`} onPress={() => void copyTable($, t)}>
-                    <Text color={BLUE}>⧉ Copy table{nTables > 1 ? ` ${i}` : ''}</Text>
-                  </Button>
+                  <Box flexDirection="row">
+                    <Button key={`tab-${i}`} onPress={() => void copyTable($, t)}>
+                      <Text color={BLUE}>⧉ Copy table{nTables > 1 ? ` ${i}` : ''}</Text>
+                    </Button>
+                    <Box marginLeft={1}>
+                      <Button
+                        key={`tabtxt-${i}`}
+                        onPress={() => {
+                          // a <pre> block: Teams pastes it as a code block, compact and aligned
+                          const txt = tableText(t)
+                          void copyRich($, `<pre style='font-family:Consolas,monospace;font-size:10pt'>${esc(txt)}</pre>`, txt.replace(/\n/g, '\r\n'), 'Table copied as a code block: paste it into Teams, Outlook or Word')
+                        }}
+                      >
+                        <Text color={BLUE}>⧉ Copy as code</Text>
+                      </Button>
+                    </Box>
+                  </Box>
                 </Box>
               )
             }

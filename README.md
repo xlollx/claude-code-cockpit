@@ -169,7 +169,7 @@ The files Claude edited in the session, with how many times (`×3`).
 | Prose | uses the whole chat width, or wraps at `proseWidth` columns |
 | Tool results | `Wrote 17 lines to ...`, file previews and command output on a slightly lighter background with a grey bar on the left, as OpenCode draws them (the expanded ctrl+o view is left as Claude Code draws it) |
 | Code blocks | box with a green bar, the language name, syntax highlighting, and a **`⧉ Copy code`** button under it |
-| Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat; a **`⧉ Copy table`** button under it |
+| Tables | outer border, coloured header, striped rows; columns shrink and wrap when the table is wider than the chat; **`⧉ Copy table`** and **`⧉ Copy as code`** buttons under it |
 | Under the prompt | `▣ Opus 5.5 · high` before Claude Code's own hint line, as OpenCode shows model and agent under its input |
 | End of turn | `▣ Opus 5.5 · high · 40s` and a thin line between one turn and the next |
 
@@ -184,6 +184,8 @@ Under every quoted block (`> ...`), for example text Claude prepares for you to 
 ### Copy table
 
 Click `⧉ Copy table` under any table: it is copied **as a real table**, so pasting into Teams, Outlook, Word or Excel gives rows and columns, not pipes and dashes.
+
+`⧉ Copy as code`, next to it, copies the same table as text with aligned columns and a dashed line under the header, inside a code block: useful where an app restyles pasted tables (Teams draws them large), as it stays compact and aligned.
 
 - Windows: HTML plus tab-separated text, through PowerShell.
 - macOS: HTML plus text, through `osascript` (not tested yet).
