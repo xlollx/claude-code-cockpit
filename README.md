@@ -108,7 +108,7 @@ Type text in the field and press **Enter**: the panel lists every occurrence in 
 
 ### Sessions
 
-The other Claude Code sessions running on this computer, each with its name and whether it is busy or idle (read from Claude Code's own session files, only those whose process is alive). Click one to select it: a text field appears, type a message and press Enter to send it to that session, as the `SendMessage` tool does. Click it again to deselect. Hidden when no other session runs.
+The other Claude Code sessions running on this computer, each with the title of its terminal tab (on Windows; elsewhere the session name) and whether it is busy or idle (read from Claude Code's own session files, only those whose process is alive). Click one to select it: a text field appears, type a message and press Enter to send it to that session, as the `SendMessage` tool does. Click it again to deselect. Hidden when no other session runs.
 
 ### Active modes
 
@@ -212,7 +212,7 @@ Click `⧉ Copy code` under any code block to copy its content, without the box,
 
 ### Copy text
 
-Under every quoted block (`> ...`), for example text Claude prepares for you to paste into a ticket or a mail, click `⧉ Copy text`: it is copied **with its formatting** (bold, italics, inline code, links, bulleted and numbered lists), so Teams, Outlook, Word and web forms paste it formatted, not as markdown. Editors that take plain text get it without markdown markers, links written as `text (url)`.
+Quoted blocks (`> ...`) are drawn with a grey bar as tall as the block, their lists and wrapped lines indented. Under every quoted block, for example text Claude prepares for you to paste into a ticket or a mail, click `⧉ Copy text`: it is copied **with its formatting** (bold, italics, inline code, links, bulleted and numbered lists), so Teams, Outlook, Word and web forms paste it formatted, not as markdown. Editors that take plain text get it without markdown markers, links written as `text (url)`.
 
 ### Copy table
 
