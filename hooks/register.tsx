@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ProcessRunInit, Register, RenderElement, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { FileEdit, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
+import type { Aside, FileEdit, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
@@ -35,6 +35,8 @@ const pipes = atom({ plugin: 'cockpit', key: 'pipes' } as const, [] as PipelineR
 const peers = atom({ plugin: 'cockpit', key: 'peers' } as const, [] as Peer[], { shape: 'peers-1' })
 const peerTo = atom({ plugin: 'cockpit', key: 'peerTo' } as const, null as string | null, { shape: 'peerTo-1' })
 const compactA = atom({ plugin: 'cockpit', key: 'compact' } as const, false, { shape: 'compact-1' })
+const asides = atom({ plugin: 'cockpit', key: 'asides' } as const, [] as Aside[], { shape: 'asides-1' })
+const asideOpen = atom({ plugin: 'cockpit', key: 'asideOpen' } as const, null as string | null, { shape: 'asideOpen-1' })
 const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as string | null, { shape: 'remOpen-1' })
 const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
@@ -885,7 +887,7 @@ const PALETTES = {
 
 // option name of a section -> id used for its folded state
 const SECTION_IDS: Record<string, string> = {
-  search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
+  btw: 'btw', aside: 'btw', search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
   actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file', sessions: 'sessioni',
 }
 let HIDDEN = new Set<string>()
@@ -1665,6 +1667,29 @@ async function refreshPipes($: EngineInterface, force = false) {
 // /cockpit and /sidebar: refresh and open the panel
 // /cockpit-update: the mod's own folder is a git clone -> pull it (the new version loads by
 // itself when plugin.json changes); otherwise it came from the marketplace -> update it there
+// Aside (/btw) in the panel: a side question answered over the session's own conversation
+// (a tool-less fork served from the prompt cache) and shown in its own box; nothing is added
+// to the chat. Before the first message there is nothing to fork: it is asked without context
+async function askAside($: EngineInterface, raw: string) {
+  const q = raw.trim()
+  if (q === '') {
+    return
+  }
+  const id = String(await $.clock.now())
+  await update($, asides, list => [{ id, q, a: '', state: 'wait' as const }, ...list].slice(0, 5))
+  await update($, asideOpen, () => null)
+  const done = (a: string, state: 'done' | 'error') => update($, asides, list => list.map(x => (x.id === id ? { ...x, a, state } : x)))
+  try {
+    // the answer is read in a narrow box: short, no tables or headings that would break there
+    const ask = `${q}\n\n(Side question, answered in a narrow side panel and not added to the conversation: reply briefly, in plain prose or a short bullet list, with no tables and no headings.)`
+    const f = await $.model.fork({ prompt: ask })
+    const r = !f.isAnswered && f.reason === 'nothing-to-fork' ? await $.model.complete({ model: await $.session.model(), prompt: ask }) : f
+    await (r.isAnswered ? done(r.text.trim(), 'done') : done(`No answer (${r.reason}).`, 'error'))
+  } catch (err) {
+    await done(`No answer: ${String(err).slice(0, 200)}`, 'error')
+  }
+}
+
 async function updateCockpit($: EngineInterface): Promise<string> {
   const root = $.plugin.root
   const version = async () => {
@@ -2681,10 +2706,12 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Input, Text } = $.ui.resolve(e)
+    const { Box, Button, Input, Markdown, Text } = $.ui.resolve(e)
     const u = await read($, usage)
     const eff = await read($, effort)
     const w = await read($, where)
+    const asked = await read($, asides)
+    const askedOpen = await read($, asideOpen)
     const wr = await read($, writes)
     const rem = await read($, reminders)
     const list = await read($, files)
@@ -2881,6 +2908,70 @@ export const register: Register = (on, options) => {
                 </Button>
               ))}
             </Box>
+          </Box>,
+        )}
+
+        {section('btw', 'Aside', ACCENT, undefined,
+          <Box flexDirection="column">
+            <Input
+              key="aside-input"
+              placeholder={narrow ? 'side question… (Enter)' : 'side question, Enter (not added to the chat)'}
+              value=""
+              submitLabel="ask"
+              onSubmit={q => void askAside($, q)}
+            />
+            {(() => {
+              const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
+              if (cur === undefined) {
+                return <Text dimColor>like /btw: answered with the conversation in mind, kept out of it</Text>
+              }
+              return (
+                <Box flexDirection="column">
+                  {/* the answer in a box of its own, a small window beside the chat */}
+                  <Box flexDirection="column" borderStyle="round" borderColor={cur.state === 'error' ? PROD : TURN_RULE} paddingX={1} marginTop={1}>
+                    <Text>
+                      <Text color={BLUE}>you </Text>
+                      <Text dimColor>{cur.q}</Text>
+                    </Text>
+                    {cur.state === 'wait' ? (
+                      <Text color={ACCENT}>◌ thinking…</Text>
+                    ) : cur.state === 'error' ? (
+                      <Text color={PROD}>{cur.a}</Text>
+                    ) : (
+                      <Markdown text={cur.a} />
+                    )}
+                  </Box>
+                  <Box flexDirection="row" columnGap={1}>
+                    {cur.state === 'done' && (
+                      <Button
+                        key={`aside-copy-${cur.id}`}
+                        plain
+                        onPress={async press => {
+                          const r = await $.ui.copy({ text: cur.a, surface: press.surface })
+                          $.ui.toast(r.isCopied ? 'Answer copied' : 'Copy failed')
+                        }}
+                      >
+                        <Text backgroundColor={CHIP_GREEN}><Text color={GREEN}>{' ⧉ '}</Text>{'Copy '}</Text>
+                      </Button>
+                    )}
+                    <Button key={`aside-close-${cur.id}`} plain onPress={() => void update($, asides, list => list.filter(x => x.id !== cur.id))}>
+                      <Text backgroundColor={BAND_BG}><Text dimColor>{' ✕ '}</Text>{'Close '}</Text>
+                    </Button>
+                  </Box>
+                  {/* earlier side questions: one line each, a click shows it */}
+                  {asked
+                    .filter(x => x.id !== cur.id)
+                    .map(x => (
+                      <Button key={`aside-old-${x.id}`} plain onPress={() => void update($, asideOpen, () => x.id)}>
+                        <Text dimColor>
+                          {x.state === 'wait' ? '◌ ' : '› '}
+                          {cut(x.q, cols - 2)}
+                        </Text>
+                      </Button>
+                    ))}
+                </Box>
+              )
+            })()}
           </Box>,
         )}
 

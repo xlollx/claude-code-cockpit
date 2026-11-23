@@ -119,6 +119,10 @@ Production is easy to spot: a subscription, context or branch whose name matches
 - One button per model family (`Fable`, `Mythos`, `Opus`, `Sonnet`, `Haiku`...). One click switches model. A new family appears by itself as soon as it is used, or when an agent in `~/.claude/agents` names it in `model:`.
 - `low medium high xhigh max`: one click sets the effort.
 
+### Aside
+
+A side question, like Claude Code's `/btw`, in a small window of its own. Type it and press Enter: Claude answers with the conversation in mind, briefly, in a box under the field, and nothing is added to the chat. Under the answer, `⧉ Copy` and `✕ Close`; earlier side questions stay underneath on one line each, a click shows them again (the last 5). Each question is one request to the model, read from the prompt cache, and counts toward your usage like any other.
+
 ### Search
 
 Type text in the field and press **Enter**: the panel lists every occurrence in the session's messages (your prompts and Claude's replies), newest first, with the match highlighted.

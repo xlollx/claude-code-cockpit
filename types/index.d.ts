@@ -69,6 +69,9 @@ export type PipelineRun = {
   error: string
 }
 
+/** A side question asked from the panel's Aside section (/btw): never added to the chat */
+export type Aside = { id: string; q: string; a: string; state: 'wait' | 'done' | 'error' }
+
 /** One item of Claude's task list */
 export type TaskItem = { id: string; subject: string; status: 'pending' | 'in_progress' | 'completed' }
 
@@ -114,6 +117,10 @@ declare module 'claude-code' {
       busy: Shaped<boolean>
       /** id of the reminder shown in full (clicked in the panel) */
       remOpen: Shaped<string | null>
+      /** side questions asked from the panel, newest first (at most 5) */
+      asides: Shaped<Aside[]>
+      /** id of the side question shown in full (null: the newest) */
+      asideOpen: Shaped<string | null>
     }
   }
 }
