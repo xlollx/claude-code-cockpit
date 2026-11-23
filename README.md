@@ -15,9 +15,9 @@ A Claude Code mod for the terminal. It adds two things:
 
 The look is inspired by OpenCode.
 
-> **Status: early preview.** Built and used daily on Windows Terminal with Claude Code 2.1.327. Verified there: the panel, search, model and effort buttons, active modes, context, paste image, copy code and copy table, and the chat styling. **Not fully tested yet**: the Pipelines, Write commands, Pull request and Tasks sections, the reminder buttons, the `light` palette, `hiddenSections`/`openOnStart`, and macOS and Linux. Issues and reports are welcome.
+![A tour of the cockpit: the side panel, search, Copy buttons under tables and code, compact mode](docs/demo.gif)
 
-![The side panel next to a reply with a heading and a numbered list](docs/panel-and-plan.png)
+Used every day on Windows Terminal with Claude Code 2.1.327: the panel, search, model and effort buttons, active modes, context, paste image, Copy code / Copy table and the chat styling all work there. One command to install, one to remove everything. Status of the less used parts is at the end, in [Status](#status).
 
 ## Install
 
@@ -294,6 +294,10 @@ These come from what Claude Code lets a mod change:
 ## Development
 
 Clone the repository and load the folder in every session with `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of your user `settings.json`, or start Claude Code with `claude --plugin-dir <folder>`. Changes reload at the end of each turn. After a change run `claude plugin validate <folder>`. `tsconfig.json` extends the types Claude Code writes into `.claude-plugin/types/` the first time it loads the mod.
+
+## Status
+
+Young project, moving fast. Verified daily on Windows Terminal with Claude Code 2.1.327. **Not fully tested yet**: the Pipelines, Write commands, Pull request and Tasks sections, the reminder buttons, the `light` palette, `hiddenSections`/`openOnStart`, and macOS and Linux. Reports for those are the most useful kind of [issue](https://github.com/xlollx/claude-code-cockpit/issues).
 
 ## Roadmap
 
