@@ -112,6 +112,8 @@ declare module 'claude-code' {
       compact: Shaped<boolean>
       /** the ↻ button is refreshing every section */
       busy: Shaped<boolean>
+      /** id of the reminder shown in full (clicked in the panel) */
+      remOpen: Shaped<string | null>
     }
   }
 }

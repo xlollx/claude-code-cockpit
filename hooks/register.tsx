@@ -35,6 +35,7 @@ const pipes = atom({ plugin: 'cockpit', key: 'pipes' } as const, [] as PipelineR
 const peers = atom({ plugin: 'cockpit', key: 'peers' } as const, [] as Peer[], { shape: 'peers-1' })
 const peerTo = atom({ plugin: 'cockpit', key: 'peerTo' } as const, null as string | null, { shape: 'peerTo-1' })
 const compactA = atom({ plugin: 'cockpit', key: 'compact' } as const, false, { shape: 'compact-1' })
+const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as string | null, { shape: 'remOpen-1' })
 const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 
@@ -2347,12 +2348,17 @@ export const register: Register = (on, options) => {
     // text with the occurrences highlighted
     // One line of prose: `code` in the inline-code colour, **bold**, bare URLs as coloured
     // clickable links, search matches marked
+    // bold text that holds `code` ("**Deploy to `web`**"): the code keeps its own colour
+    const boldParts = (t: string) =>
+      t.split(/(`[^`\n]+`)/).map(p =>
+        p.length > 2 && p.startsWith('`') && p.endsWith('`') ? <Text color={CODE_INLINE}>{mark(p.slice(1, -1))}</Text> : mark(p),
+      )
     const inline = (line: string) =>
       line.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|https?:\/\/[^\s<>()`*]+[^\s<>()`*.,;:!?'"])/).map((tok, i) =>
         // a bold lead-in that opens the line ("**Next steps:** ...") reads as a heading: orange
         i === 1 && line.startsWith('**') && tok.startsWith('**') && tok.endsWith('**') && tok.length > 4 ? (
           <Text bold color={ACCENT}>
-            {mark(tok.slice(2, -2))}
+            {boldParts(tok.slice(2, -2))}
           </Text>
         ) : tok.startsWith('`') && tok.endsWith('`') && tok.length > 2 ? (
           <Text color={CODE_INLINE} bold>
@@ -2361,7 +2367,7 @@ export const register: Register = (on, options) => {
         ) : tok.startsWith('**') && tok.endsWith('**') && tok.length > 4 ? (
           // bold inside a sentence: the inline-code colour, so it stands out from plain text
           <Text bold color={CODE_INLINE}>
-            {mark(tok.slice(2, -2))}
+            {boldParts(tok.slice(2, -2))}
           </Text>
         ) : /^https?:\/\//.test(tok) ? (
           <Text color={BLUE} underline italic>
@@ -2683,7 +2689,9 @@ export const register: Register = (on, options) => {
     const act = await read($, modes)
     const ns = await read($, enabled)
     // usable cells: the pane's own body (not the transcript's width) minus our padding (2 + 2)
-    const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 4)
+    // (one more cell kept free: a line exactly as wide as the body wraps in the terminal)
+    const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 5)
+    const narrow = cols < 36
     const barW = Math.max(6, Math.min(28, cols - 10))
     const tone = (p: number) => (p >= 80 ? 'error' : p >= 60 ? 'warning' : 'success')
     // filled part in colour, empty part as a faint track
@@ -2702,6 +2710,7 @@ export const register: Register = (on, options) => {
     const pull = await read($, pr)
     const term = await read($, termLook)
     const refreshing = await read($, busy)
+    const openRem = await read($, remOpen)
     const tl = await read($, tasks)
     const found = await read($, search)
     const others = (await read($, peers)).filter(x => !x.self)
@@ -2782,15 +2791,30 @@ export const register: Register = (on, options) => {
         {section('dove', 'Where you are', ACCENT, undefined,
           <Box flexDirection="column">
             <Box flexDirection="row">
-              <Text dimColor>dir  </Text>
+              <Box width={5} flexShrink={0}>
+                <Text dimColor>dir</Text>
+              </Box>
               <Box flexShrink={1}>
                 {w.cwd === undefined ? (
                   <Text>—</Text>
                 ) : (
-                  <Text>
-                    <Text dimColor>{w.cwd.replace(/[^\\/]+[\\/]?$/, '')}</Text>
-                    <Text bold>{w.cwd.replace(/^.*[\\/](?=[^\\/])/, '').replace(/[\\/]$/, '') || w.cwd}</Text>
-                  </Text>
+                  (() => {
+                    // at most two lines: a long path loses its start, cut at a separator
+                    const room = Math.max(8, (cols - 5) * 2 - 1)
+                    let path = w.cwd
+                    if (path.length > room) {
+                      const tail = path.slice(path.length - room + 1)
+                      const sep = tail.search(/[\\/]/)
+                      path = '…' + (sep >= 0 && sep < tail.length - 1 ? tail.slice(sep) : tail)
+                    }
+                    const name = path.replace(/^.*[\\/](?=[^\\/])/, '').replace(/[\\/]$/, '') || path
+                    return (
+                      <Text>
+                        <Text dimColor>{path.slice(0, path.length - name.length - (/[\\/]$/.test(path) ? 1 : 0))}</Text>
+                        <Text bold>{name}</Text>
+                      </Text>
+                    )
+                  })()
                 )}
               </Box>
             </Box>
@@ -2827,8 +2851,8 @@ export const register: Register = (on, options) => {
               <Text>
                 <Text color={BLUE}>▣ </Text>
                 <Text bold>{prettyModel(u?.model)}</Text>
-                {u?.model !== undefined && prettyModel(u.model) !== u.model && (
-                  <Text dimColor>  {cut(u.model, Math.max(4, cols - prettyModel(u.model).length - 6))}</Text>
+                {u?.model !== undefined && prettyModel(u.model) !== u.model && cols - prettyModel(u.model).length - 6 >= u.model.length && (
+                  <Text dimColor>  {u.model}</Text>
                 )}
                 <Text dimColor> ›</Text>
               </Text>
@@ -2862,7 +2886,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column">
             <Input
               key="search-input"
-              placeholder="text to find, Enter (Esc to leave)"
+              placeholder={narrow ? 'find… (Enter)' : 'text to find, Enter (Esc to leave)'}
               value={found?.query ?? ''}
               submitLabel="search"
               onSubmit={q => void runSearch($, q)}
@@ -2977,7 +3001,8 @@ export const register: Register = (on, options) => {
             ))}
             <Text dimColor>
               {'    '}
-              {kTok(u?.tokens)} / {kTok(u?.window)} tokens
+              {kTok(u?.tokens)} / {kTok(u?.window)}
+              {narrow ? '' : ' tokens'}
             </Text>
           </Box>,
         )}
@@ -3103,9 +3128,13 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column">
               {rem.slice(0, 3).map(r => (
                 <Box flexDirection="column">
-                  <Text>
-                    <Text color={r.due <= today ? 'error' : 'warning'}>{r.due.slice(8, 10)}/{r.due.slice(5, 7)} {r.due.slice(11, 16)}</Text> {cut(r.title, cols - 13)}
-                  </Text>
+                  {/* a click shows the whole text, another folds it back to one line */}
+                  <Button key={`rem-open-${r.id}`} plain onPress={() => void update($, remOpen, cur => (cur === r.id ? null : r.id))}>
+                    <Text>
+                      <Text color={r.due <= today ? 'error' : 'warning'}>{r.due.slice(8, 10)}/{r.due.slice(5, 7)} {r.due.slice(11, 16)}</Text>{' '}
+                      {openRem === r.id ? r.title : cut(r.title, cols - 13)}
+                    </Text>
+                  </Button>
                   <Box flexDirection="row" marginLeft={6}>
                     <Button key={`rem-done-${r.id}`} plain onPress={() => void changeReminder($, r.id, 'done')}>
                       <Text color="success">{' ✓ done '}</Text>
@@ -3140,7 +3169,10 @@ export const register: Register = (on, options) => {
               <Text bold>Claude Code</Text>
               {CC_VERSION !== '' && <Text dimColor> {CC_VERSION}</Text>}
             </Text>
-            {u?.startedAt !== undefined && <Text dimColor>{since(now - u.startedAt)}</Text>}
+            {/* the session time only where it fits beside the version */}
+            {u?.startedAt !== undefined && cols >= 14 + CC_VERSION.length + since(now - u.startedAt).length + 2 && (
+              <Text dimColor>{since(now - u.startedAt)}</Text>
+            )}
           </Box>
         </Box>
       </Box>

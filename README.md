@@ -201,7 +201,7 @@ A command counts only where it starts a command (`grep "git push"` or a commit m
 
 ### Reminders
 
-Open reminders due within 7 days, read from a JSON file (see [Optional integrations](#optional-integrations)); overdue ones in red. Each has two buttons that update the file:
+Open reminders due within 7 days, read from a JSON file (see [Optional integrations](#optional-integrations)); overdue ones in red. A long title is cut to one line: click it to read it whole, click again to fold it. Each has two buttons that update the file:
 
 - `✓ done` marks it done;
 - `+1 day` moves it one day later.
