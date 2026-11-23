@@ -94,7 +94,7 @@ Type text in the field and press **Enter**: the panel lists every occurrence in 
 - `clear` removes the search and the highlight.
 - **Esc** gives the keyboard back to the prompt.
 
-![Searching "kube": hits in the panel, newest first, and the match highlighted in the chat](docs/search.png)
+![Searching "helm": hits in the panel, newest first, and the match highlighted in the chat](docs/search.png)
 
 ### Sessions
 
@@ -179,7 +179,7 @@ The files Claude edited in the session, with how many times (`×3`).
 
 ## The chat
 
-![Table with coloured header and copy button, code block, end-of-turn line](docs/chat-and-panel.png)
+![Table with Copy table and Copy as code, code block with Copy code, quoted note with Copy text](docs/chat-and-panel.png)
 
 | Element | Look |
 |---|---|
