@@ -35,6 +35,7 @@ const pipes = atom({ plugin: 'cockpit', key: 'pipes' } as const, [] as PipelineR
 const peers = atom({ plugin: 'cockpit', key: 'peers' } as const, [] as Peer[], { shape: 'peers-1' })
 const peerTo = atom({ plugin: 'cockpit', key: 'peerTo' } as const, null as string | null, { shape: 'peerTo-1' })
 const compactA = atom({ plugin: 'cockpit', key: 'compact' } as const, false, { shape: 'compact-1' })
+const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
@@ -1142,6 +1143,28 @@ async function refreshAll($: EngineInterface) {
   await refreshPr($)
 }
 
+// ↻ in the panel: every section at once instead of waiting for its timer (30 s to 5 min).
+// Local reads land first, the network ones (pull request, pipelines) when they answer; the
+// icon spins at most 15 s so a slow server never leaves it stuck
+async function refreshNow($: EngineInterface) {
+  if (await read($, busy)) {
+    return
+  }
+  await update($, busy, () => true)
+  const timer = $.clock.after(15_000, () => void update($, busy, () => false))
+  await Promise.allSettled([
+    measure($),
+    refreshWhere($),
+    refreshReminders($),
+    refreshPeers($),
+    loadModels($),
+    refreshPr($),
+    refreshPipes($, true),
+  ])
+  timer.cancel()
+  await update($, busy, () => false)
+}
+
 // Local "YYYY-MM-DDTHH:MM", the format of the reminders file
 function localStamp(ms: number) {
   const d = new Date(ms)
@@ -1630,12 +1653,13 @@ async function refreshPipes($: EngineInterface, force = false) {
 
 // /cockpit and /sidebar: refresh and open the panel
 async function openCommand($: EngineInterface) {
-  await refreshAll($)
-  // out of compact mode: the side panel replaces the band
+  // out of compact mode: the side panel replaces the band. Open first with what is already
+  // known, then refresh: the panel fills in as answers arrive instead of waiting for the network
   COMPACT = false
   await $.store.set('compact', false)
   await update($, compactA, () => false)
   const r = await openPane($)
+  void refreshAll($)
 
   return { text: r.isPlaced ? 'Panel open.' : `Panel not shown: ${r.reason ?? 'terminal too narrow'}` }
 }
@@ -1892,6 +1916,7 @@ async function miniView($: EngineInterface, els: { Box: any; Button: any; Text: 
   const wr = await read($, writes)
   const rem = await read($, reminders)
   const list = await read($, files)
+  const refreshing = await read($, busy)
   const pct = u?.percent ?? 0
   const pctColor = pct >= 80 ? 'error' : pct >= 60 ? 'warning' : ACCENT
   const today = localStamp(await $.clock.now())
@@ -1910,6 +1935,13 @@ async function miniView($: EngineInterface, els: { Box: any; Button: any; Text: 
           <Box marginRight={2}>
             <Button key="expand" plain onPress={() => void toggleCompact($)}>
               <Text color={BLUE}>⇤ expand</Text>
+            </Button>
+          </Box>
+        )}
+        {expand && (
+          <Box marginRight={2}>
+            <Button key="refresh-band" plain onPress={() => void refreshNow($)}>
+              <Text color={refreshing ? ACCENT : BLUE}>{refreshing ? '◌' : '↻'}</Text>
             </Button>
           </Box>
         )}
@@ -1972,6 +2004,13 @@ export const register: Register = (on, options) => {
   applyOptions(options)
 
   on('session.start', async ($, e, next) => {
+    // open the panel first, before any file, process or network read: it draws at once and
+    // fills in as the answers below arrive (a slow pull request lookup never delays it)
+    const isOn = (await $.store.get('enabled')) !== false
+    COMPACT = (await $.store.get('compact')) === true
+    if (isOn && OPEN_ON_START && !COMPACT) {
+      void openPane($)
+    }
     await $.command.register({ name: 'cockpit', description: 'Open the cockpit side panel' })
     await $.command.register({ name: 'sidebar', description: 'Open the cockpit side panel (alias of /cockpit)' })
     await $.command.register({
@@ -1985,18 +2024,18 @@ export const register: Register = (on, options) => {
       description: 'Uninstall the mod and put back what it changed (terminal, options, stored state); without "yes" only lists it',
       argumentHint: 'yes',
     })
-    const isOn = (await $.store.get('enabled')) !== false
     await update($, enabled, () => isOn)
     const initial = await effortFromSettings($)
     await update($, effort, cur => cur ?? initial)
-    COMPACT = (await $.store.get('compact')) === true
     await update($, compactA, () => COMPACT)
     const savedCollapsed = (await $.store.get('collapsed')) as string[] | undefined
     await update($, collapsed, () => (Array.isArray(savedCollapsed) ? savedCollapsed : []))
     await loadModels($)
     CC_VERSION = (await $.session.version()).version
     const ran = await next(e)
-    await refreshAll($)
+    // local reads first (files, git); the pull request asks the network, so it does not hold up the start
+    await Promise.all([measure($), refreshWhere($), refreshReminders($)])
+    void refreshPr($)
     void refreshPipes($, true)
     void refreshPeers($)
     void (async () => {
@@ -2027,10 +2066,6 @@ export const register: Register = (on, options) => {
     $.clock.every(300_000, () => {
       void refreshReminders($)
     })
-    if (isOn && OPEN_ON_START && !COMPACT) {
-      void openPane($)
-    }
-
     return ran
   })
 
@@ -2606,6 +2641,7 @@ export const register: Register = (on, options) => {
     const today = localStamp(await $.clock.now())
     const pull = await read($, pr)
     const term = await read($, termLook)
+    const refreshing = await read($, busy)
     const tl = await read($, tasks)
     const found = await read($, search)
     const others = (await read($, peers)).filter(x => !x.self)
@@ -2673,9 +2709,15 @@ export const register: Register = (on, options) => {
           <Text>
             <Text color={ACCENT} bold>◆ cockpit</Text>
           </Text>
-          <Button key="compact" plain onPress={() => void toggleCompact($)}>
-            <Text color={BLUE}>{cols >= 30 ? '⇥ compact' : '⇥'}</Text>
-          </Button>
+          <Box flexDirection="row" columnGap={2}>
+            {/* every section now, instead of waiting for its timer */}
+            <Button key="refresh" plain onPress={() => void refreshNow($)}>
+              <Text color={refreshing ? ACCENT : BLUE}>{refreshing ? '◌' : '↻'}</Text>
+            </Button>
+            <Button key="compact" plain onPress={() => void toggleCompact($)}>
+              <Text color={BLUE}>{cols >= 30 ? '⇥ compact' : '⇥'}</Text>
+            </Button>
+          </Box>
         </Box>
         {section('dove', 'Where you are', ACCENT, undefined,
           <Box flexDirection="column">

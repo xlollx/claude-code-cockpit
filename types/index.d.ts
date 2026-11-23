@@ -110,6 +110,8 @@ declare module 'claude-code' {
       peerTo: Shaped<string | null>
       /** compact panel (session copy of the value in $.store) */
       compact: Shaped<boolean>
+      /** the ↻ button is refreshing every section */
+      busy: Shaped<boolean>
     }
   }
 }

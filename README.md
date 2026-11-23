@@ -83,6 +83,8 @@ By hand: `/plugin uninstall cockpit`, then copy `settings.json.cockpit-<date>.ba
 The panel sits on the right of the chat when the terminal is wide enough (about 110 columns or more). In a narrow terminal it becomes a two-line bar above the prompt.
 
 - **Click a section title** to fold or unfold it. Folded sections are remembered across sessions.
+- **`↻`**, at the top, refreshes every section at once (folder, Azure, kubectl, git, context, reminders, sessions, pull request, pipelines) instead of waiting for its timer; it shows `◌` while the answers come in. The compact bar has it too.
+- The panel opens at once with what is already known and fills in as the answers arrive: a slow GitHub or Azure DevOps lookup never delays it.
 - Sections with nothing to show (no PR, no pipelines, no reminders) stay hidden.
 - Hide sections you never want with the `hiddenSections` option.
 - At the bottom edge: `● Claude Code <version>` and how long the session has been running, always pinned there while the sections scroll.
