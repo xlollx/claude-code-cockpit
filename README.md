@@ -71,7 +71,7 @@ The panel sits on the right of the chat when the terminal is wide enough (about 
 - **Click a section title** to fold or unfold it. Folded sections are remembered across sessions.
 - Sections with nothing to show (no PR, no pipelines, no reminders) stay hidden.
 - Hide sections you never want with the `hiddenSections` option.
-- At the bottom edge: `● Claude Code <version>`, always pinned there while the sections scroll.
+- At the bottom edge: `● Claude Code <version>` and how long the session has been running, always pinned there while the sections scroll.
 - **`⇥ compact`**, at the top next to the panel's `✕`, closes the side panel and shows a 2-line summary above the prompt instead (folder, subscription, kubectl context, branch, model and effort, context, running pipelines, writes, reminders, other sessions), so the chat gets the whole width; `⇤ expand` on that bar, or `/cockpit`, brings the side panel back. The choice is remembered across sessions.
 
 ![Compact mode: the side panel gives way to a 2-line summary above the prompt](docs/compact.png)
@@ -90,10 +90,9 @@ Production is easy to spot: a subscription, context or branch whose name matches
 
 ### Model
 
+- At the top, the model in use: its name (`Opus 5.5`) and the exact id (`claude-opus-5-5`). Click it to open Claude Code's full model picker.
 - One button per model family (`Fable`, `Mythos`, `Opus`, `Sonnet`, `Haiku`...). One click switches model. A new family appears by itself as soon as it is used, or when an agent in `~/.claude/agents` names it in `model:`.
-- `…` opens Claude Code's full model picker.
 - `low medium high xhigh max`: one click sets the effort.
-- Under them, the exact model id in use.
 
 ### Search
 
@@ -122,16 +121,15 @@ Shows which style modes are on, so you never wonder why Claude is answering in a
 
 ### Context
 
-- A fill bar with the percentage of the context window in use, and the tokens (`112k/1000k`).
-- Your 5-hour and 7-day usage limits.
-- How long the session has been running.
+- Three aligned bars: the context window in use (`ctx`), and your 5-hour and 7-day usage limits, which turn yellow at 60% and red at 80%.
+- The tokens in use (`112k / 1M tokens`).
 - At 80% a toast suggests `/compact` before a long task.
 
 ### Pipelines (Azure DevOps)
 
 Runs **you** requested in the last 24 hours, however they were started: portal, `az pipelines run`, REST, a pull request.
 
-- By default only the runs that need attention: **⏳ running or queued**, **⏸ waiting for approval**, **✗ failed**. `pipelinesShow: all` shows every run, finished ones included (✓ succeeded, ⚠ partially succeeded, ⊘ cancelled).
+- By default only the runs that need attention: **◐ running or queued**, **‖ waiting for approval**, **✗ failed**. `pipelinesShow: all` shows every run, finished ones included (✓ succeeded, ! partially succeeded, ⊘ cancelled).
 - At most 4 runs (`pipelinesMax`), each with name, run number, branch and age.
 - Refreshed every minute.
 - Watched projects: the current repo's (when its remote is on Azure DevOps), any project named in a command you run, and those listed in `adoProjects`.
@@ -140,7 +138,7 @@ Runs **you** requested in the last 24 hours, however they were started: portal, 
 
 ### Pull request
 
-The open pull request of the current branch, on GitHub or Azure DevOps: number, title, draft, reviews (✓ approved, ✗ changes requested or rejected, ⏸ waiting) and the CI result.
+The open pull request of the current branch, on GitHub or Azure DevOps: number, title, draft, reviews (✓ approved, ✗ changes requested or rejected, ‖ waiting) and the CI result.
 
 - **Display only**: GET requests, never a change to the pull request.
 - Uses the credential git already holds (Git Credential Manager) and never prompts for a login.

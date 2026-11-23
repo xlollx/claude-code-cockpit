@@ -912,13 +912,10 @@ function applyOptions(options: Readonly<Record<string, unknown>>) {
   }
 }
 
-const kTok = (n?: number) => (n === undefined ? '?' : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`)
+const kTok = (n?: number) =>
+  n === undefined ? '?' : n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`
 const short = (p: string) => p.replace(/\\/g, '/').split('/').slice(-2).join('/')
 const cut = (s: string, n: number) => (s.length > n ? s.slice(0, Math.max(1, n - 1)) + '…' : s)
-const bar = (pct: number, width: number) => {
-  const full = Math.round((Math.min(100, Math.max(0, pct)) / 100) * width)
-  return '█'.repeat(full) + '░'.repeat(Math.max(0, width - full))
-}
 const dur = (ms: number) => {
   const s = ms / 1000
   if (s < 10) return `${s.toFixed(1)}s`
@@ -1933,19 +1930,23 @@ async function miniView($: EngineInterface, els: { Box: any; Button: any; Text: 
         )}
       </Box>
       <Box flexDirection="row" flexWrap="wrap">
-        <Button key="model-i" onPress={() => void openPicker($, 'model')}>
-          <Text bold>{prettyModel(u?.model)}</Text>
+        <Button key="model-i" plain onPress={() => void openPicker($, 'model')}>
+          <Text bold backgroundColor={HEAD_BG}>{` ${prettyModel(u?.model)} `}</Text>
         </Button>
         <Text> </Text>
-        <Button key="effort-i" onPress={() => void openPicker($, 'effort')}>
-          <Text color={VIOLET}>{eff ?? 'effort'}</Text>
+        <Button key="effort-i" plain onPress={() => void openPicker($, 'effort')}>
+          <Text color={VIOLET} backgroundColor={HEAD_BG}>{` ${eff ?? 'effort'} `}</Text>
         </Button>
         {sep}
-        <Text color={pctColor}>{bar(pct, 10)} {Math.round(pct)}%</Text>
+        <Text>
+          <Text color={pctColor}>{'━'.repeat(Math.round((Math.min(100, Math.max(0, pct)) / 100) * 10))}</Text>
+          <Text color={TURN_RULE}>{'─'.repeat(10 - Math.round((Math.min(100, Math.max(0, pct)) / 100) * 10))}</Text>
+          <Text color={pctColor} bold> {Math.round(pct)}%</Text>
+        </Text>
         {pl > 0 && (
           <Text>
             {sep}
-            <Text color="warning">⏳ {pl} pipeline{pl === 1 ? '' : 's'}</Text>
+            <Text color="warning">◐ {pl} pipeline{pl === 1 ? '' : 's'}</Text>
           </Text>
         )}
         {wr.length > 0 && (
@@ -1958,7 +1959,7 @@ async function miniView($: EngineInterface, els: { Box: any; Button: any; Text: 
         {rem.length > 0 && (
           <Text>
             {sep}
-            <Text color={rem.some(r => r.due <= today) ? 'error' : 'warning'}>⏰ {rem.length}</Text>
+            <Text color={rem.some(r => r.due <= today) ? 'error' : 'warning'}>◷ {rem.length}</Text>
           </Text>
         )}
         {others > 0 && <Text>{sep}<Text dimColor>{others} other session{others === 1 ? '' : 's'}</Text></Text>}
@@ -2586,16 +2587,17 @@ export const register: Register = (on, options) => {
     const list = await read($, files)
     const act = await read($, modes)
     const ns = await read($, enabled)
-    const cols = Math.max(20, (e.viewport?.columns ?? 40) - 4)
-    const barW = Math.max(8, Math.min(24, cols - 10))
+    // usable cells: the pane's own body (not the transcript's width) minus our padding (2 + 2)
+    const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 4)
+    const barW = Math.max(6, Math.min(28, cols - 10))
     const tone = (p: number) => (p >= 80 ? 'error' : p >= 60 ? 'warning' : 'success')
     // filled part in colour, empty part as a faint track
     const meter = (p: number, width: number, color: string) => {
       const full = Math.round((Math.min(100, Math.max(0, p)) / 100) * width)
       return (
         <Text>
-          <Text color={color}>{'█'.repeat(full)}</Text>
-          <Text color={TURN_RULE}>{'█'.repeat(Math.max(0, width - full))}</Text>
+          <Text color={color}>{'━'.repeat(full)}</Text>
+          <Text color={TURN_RULE}>{'─'.repeat(Math.max(0, width - full))}</Text>
         </Text>
       )
     }
@@ -2629,19 +2631,22 @@ export const register: Register = (on, options) => {
       }
       const isClosed = closed.includes(id)
 
+      const label = `${isClosed ? '▸' : '▾'} ${title}`
+      const badge = count ? ` (${count})` : ''
+      // exact length (a clipped rule would end in the terminal's ellipsis), one spare cell
+      const rule = Math.max(0, cols - label.length - badge.length - 2)
+
       return (
-        <Box flexDirection="column" marginBottom={1}>
+        // folded sections stack without a blank line between them
+        <Box flexDirection="column" marginBottom={isClosed ? 0 : 1}>
           <Box flexDirection="row">
             <Button key={`sec-${id}`} plain onPress={() => void toggleSection($, id)}>
-              <Text bold color={color}>
-                {isClosed ? '▸' : '▾'} {title}
-                {count !== undefined ? <Text dimColor> ({count})</Text> : ''}
+              <Text bold color={isClosed ? undefined : color} dimColor={isClosed}>
+                {label}
+                <Text dimColor bold={false}>{badge}</Text>
               </Text>
             </Button>
-            {/* a faint rule from the title to the panel's edge, cut where the room ends */}
-            <Box flexGrow={1} flexShrink={1} marginLeft={1} overflow="hidden">
-              <Text color={TURN_RULE} wrap="clip">{'─'.repeat(160)}</Text>
-            </Box>
+            <Text color={TURN_RULE}> {'─'.repeat(rule)}</Text>
           </Box>
           {!isClosed && body}
         </Box>
@@ -2655,18 +2660,21 @@ export const register: Register = (on, options) => {
     }))
     const modelValue = fam
     const effortValue = eff !== null && (EFFORTS as readonly string[]).includes(eff) ? eff : undefined
+    // padded pills when the row fits, plain words one space apart when it does not
+    const tightM = modelOptions.reduce((n, o) => n + o.label.length + 2, 0) > cols
+    const tightE = EFFORTS.reduce((n, x) => n + x.length + 2, 0) > cols
 
     return (
       // at least as tall as the panel, so the footer sits on its bottom edge when the
       // sections are short (when they are longer it follows them)
-      <Box flexDirection="column" paddingLeft={6} paddingRight={2} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
+      <Box flexDirection="column" paddingLeft={2} paddingRight={2} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
         {/* next to the panel's ✕: shrink the panel to a narrow summary */}
-        <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={1} backgroundColor={HEAD_BG} paddingX={1}>
           <Text>
             <Text color={ACCENT} bold>◆ cockpit</Text>
           </Text>
           <Button key="compact" plain onPress={() => void toggleCompact($)}>
-            <Text color={BLUE}>⇥ compact</Text>
+            <Text color={BLUE}>{cols >= 30 ? '⇥ compact' : '⇥'}</Text>
           </Button>
         </Box>
         {section('dove', 'Where you are', ACCENT, undefined,
@@ -2712,33 +2720,39 @@ export const register: Register = (on, options) => {
 
         {section('modello', 'Model', BLUE, undefined,
           <Box flexDirection="column">
+            {/* the current model, readable name first and the exact id after it; a press opens Claude Code's picker */}
+            <Button key="m-more" plain onPress={() => void openPicker($, 'model')}>
+              <Text>
+                <Text color={BLUE}>▣ </Text>
+                <Text bold>{prettyModel(u?.model)}</Text>
+                {u?.model !== undefined && prettyModel(u.model) !== u.model && (
+                  <Text dimColor>  {cut(u.model, Math.max(4, cols - prettyModel(u.model).length - 6))}</Text>
+                )}
+                <Text dimColor> ›</Text>
+              </Text>
+            </Button>
             {/* side-by-side buttons instead of a Select: the Select grabs the keyboard and only closes with Esc */}
-            <Box flexDirection="row" flexWrap="wrap">
+            <Box flexDirection="row" flexWrap="wrap" columnGap={tightM ? 1 : 0}>
               {modelOptions.map(o => {
                 const sel = o.family === modelValue
                 return (
                   <Button key={`m-${o.family}`} plain onPress={() => void setModel($, o.value)}>
                     <Text color={sel ? BLUE : undefined} bold={sel} inverse={sel} dimColor={!sel}>
-                      {` ${o.label} `}
+                      {tightM ? o.label : ` ${o.label} `}
                     </Text>
                   </Button>
                 )
               })}
-              {/* Claude Code's picker: complete and always up to date */}
-              <Button key="m-more" plain onPress={() => void openPicker($, 'model')}>
-                <Text dimColor>{' … '}</Text>
-              </Button>
             </Box>
-            <Box flexDirection="row" flexWrap="wrap">
+            <Box flexDirection="row" flexWrap="wrap" columnGap={tightE ? 1 : 0}>
               {EFFORTS.map(x => (
                 <Button key={`e-${x}`} plain onPress={() => void setEffort($, x)}>
                   <Text color={x === effortValue ? VIOLET : undefined} bold={x === effortValue} inverse={x === effortValue} dimColor={x !== effortValue}>
-                    {` ${x} `}
+                    {tightE ? x : ` ${x} `}
                   </Text>
                 </Button>
               ))}
             </Box>
-            <Text dimColor>{cut(u?.model ?? '', cols)}</Text>
           </Box>,
         )}
 
@@ -2761,9 +2775,9 @@ export const register: Register = (on, options) => {
                   <Button key={`hit-${found.page}-${n}`} plain onPress={() => void jumpTo($, hit.probe, hit.match)}>
                     <Text>
                       <Text color={hit.role === 'user' ? BLUE : VIOLET}>{hit.role === 'user' ? 'you ' : 'claude '}</Text>
-                      <Text dimColor>{cut(hit.before, 24)}</Text>
+                      <Text dimColor>{cut(hit.before.replace(/[*`]/g, ''), 24)}</Text>
                       <Text bold color={ACCENT}>{hit.match}</Text>
-                      <Text dimColor>{cut(hit.after, Math.max(10, cols - 34 - hit.match.length))}</Text>
+                      <Text dimColor>{cut(hit.after.replace(/[*`]/g, ''), Math.max(10, cols - 34 - hit.match.length))}</Text>
                     </Text>
                   </Button>
                 ))}
@@ -2798,8 +2812,8 @@ export const register: Register = (on, options) => {
                 >
                   <Text>
                     <Text color={x.status === 'busy' ? 'warning' : 'success'}>{x.sessionId === target ? '▸ ' : '● '}</Text>
-                    <Text bold={x.sessionId === target}>{cut(x.name, cols - 10)}</Text>
-                    <Text dimColor> {x.status}</Text>
+                    <Text bold={x.sessionId === target}>{cut(x.name, cols - (x.status === 'busy' ? 7 : 2))}</Text>
+                    {x.status === 'busy' && <Text color="warning"> busy</Text>}
                   </Text>
                 </Button>
               ))}
@@ -2848,58 +2862,50 @@ export const register: Register = (on, options) => {
 
         {section('contesto', 'Context', BLUE, undefined,
           <Box flexDirection="column">
-            <Text>
-              {meter(pct, barW, pctColor)}
-              <Text color={pctColor} bold> {Math.round(pct)}%</Text>
-            </Text>
-            <Text dimColor>
-              {kTok(u?.tokens)}/{kTok(u?.window)} token
-            </Text>
-            {u?.limits.map(l => (
+            {/* three aligned meters: the context in its own colour, the plan limits green -> yellow -> red */}
+            {([
+              ['ctx', pct, pctColor, true],
+              ...(u?.limits ?? []).map(l => [l.kind === 'five_hour' ? '5h' : l.kind === 'seven_day' ? '7d' : l.kind, l.percentUsed, tone(l.percentUsed), false]),
+            ] as [string, number, string, boolean][]).map(([name, p, c, strong]) => (
               <Text>
-                <Text dimColor>{(l.kind === 'five_hour' ? '5h' : l.kind === 'seven_day' ? '7d' : l.kind).padEnd(4)}</Text>
-                {meter(l.percentUsed, Math.max(6, barW - 4), tone(l.percentUsed))}
-                <Text dimColor> {Math.round(l.percentUsed)}%</Text>
+                <Text dimColor>{cut(name, 3).padEnd(4)}</Text>
+                {meter(p, barW, c)}
+                <Text color={strong ? c : undefined} bold={strong} dimColor={!strong}>{`${Math.round(p)}%`.padStart(5)}</Text>
               </Text>
             ))}
-            {u?.startedAt !== undefined && <Text dimColor>session {since(now - u.startedAt)}</Text>}
+            <Text dimColor>
+              {'    '}
+              {kTok(u?.tokens)} / {kTok(u?.window)} tokens
+            </Text>
           </Box>,
         )}
 
         {section('azioni', 'Quick actions', VIOLET, undefined,
-          <Box flexDirection="row" flexWrap="wrap">
-            <Box marginRight={1}>
-              <Button key="act-compact" onPress={() => void runOrFill($, 'compact', '')}>
-                <Text>Compact</Text>
-              </Button>
-            </Box>
-            <Box marginRight={1}>
-              <Button key="act-context" onPress={() => void runOrFill($, 'context', '')}>
-                <Text>Context</Text>
-              </Button>
-            </Box>
-            <Box marginRight={1}>
-              <Button
-                key="act-copydir"
-                onPress={async press => {
-                  const r = await $.ui.copy({ text: (await $.session.cwd()), surface: press.surface })
-                  $.ui.toast(r.isCopied ? 'Folder path copied' : 'Copy failed')
-                }}
-              >
-                <Text>Copy path</Text>
-              </Button>
-            </Box>
-            <Box marginRight={1}>
-              <Button key="act-paste" onPress={() => void pasteImage($)}>
-                <Text>Paste image</Text>
-              </Button>
-            </Box>
+          // chips: plain buttons on a tinted background instead of [ bracketed ] ones
+          <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+            <Button key="act-compact" plain onPress={() => void runOrFill($, 'compact', '')}>
+              <Text backgroundColor={HEAD_BG}>{' Compact '}</Text>
+            </Button>
+            <Button key="act-context" plain onPress={() => void runOrFill($, 'context', '')}>
+              <Text backgroundColor={HEAD_BG}>{' Context '}</Text>
+            </Button>
+            <Button
+              key="act-copydir"
+              plain
+              onPress={async press => {
+                const r = await $.ui.copy({ text: (await $.session.cwd()), surface: press.surface })
+                $.ui.toast(r.isCopied ? 'Folder path copied' : 'Copy failed')
+              }}
+            >
+              <Text backgroundColor={HEAD_BG}>{' Copy path '}</Text>
+            </Button>
+            <Button key="act-paste" plain onPress={() => void pasteImage($)}>
+              <Text backgroundColor={HEAD_BG}>{' Paste image '}</Text>
+            </Button>
             {term === 'pending' && (
-              <Box marginRight={1}>
-                <Button key="act-term" onPress={async () => $.ui.toast(await applyTerminalLook($))}>
-                  <Text color={ACCENT}>Terminal look</Text>
-                </Button>
-              </Box>
+              <Button key="act-term" plain onPress={async () => $.ui.toast(await applyTerminalLook($))}>
+                <Text backgroundColor={HEAD_BG} color={ACCENT}>{' Terminal look '}</Text>
+              </Button>
             )}
           </Box>,
         )}
@@ -2920,10 +2926,10 @@ export const register: Register = (on, options) => {
                     <Text dimColor>reviews </Text>
                     <Text color="success">✓{pull.approved}</Text>
                     <Text color={pull.rejected > 0 ? 'error' : undefined} dimColor={pull.rejected === 0}> ✗{pull.rejected}</Text>
-                    {pull.waiting > 0 && <Text color="warning"> ⏸{pull.waiting}</Text>}
+                    {pull.waiting > 0 && <Text color="warning"> ‖{pull.waiting}</Text>}
                     <Text dimColor>   CI </Text>
                     <Text color={pull.ci === 'passed' ? 'success' : pull.ci === 'failed' ? 'error' : pull.ci === 'running' ? 'warning' : undefined} dimColor={pull.ci === 'none'}>
-                      {pull.ci === 'passed' ? '✓ passed' : pull.ci === 'failed' ? '✗ failed' : pull.ci === 'running' ? '⏳ running' : '—'}
+                      {pull.ci === 'passed' ? '✓ passed' : pull.ci === 'failed' ? '✗ failed' : pull.ci === 'running' ? '◐ running' : '—'}
                     </Text>
                   </Text>
                 </Box>
@@ -2957,7 +2963,7 @@ export const register: Register = (on, options) => {
                 if (r.status === 'error') {
                   return <Text dimColor>{cut(`${r.project}: ${r.error}`, cols)}</Text>
                 }
-                const icon = r.approval ? '⏸' : r.status === 'inProgress' ? '⏳' : r.status === 'notStarted' ? '…' : r.result === 'succeeded' ? '✓' : r.result === 'failed' ? '✗' : r.result === 'partiallySucceeded' ? '⚠' : '⊘'
+                const icon = r.approval ? '‖' : r.status === 'inProgress' ? '◐' : r.status === 'notStarted' ? '…' : r.result === 'succeeded' ? '✓' : r.result === 'failed' ? '✗' : r.result === 'partiallySucceeded' ? '!' : '⊘'
                 const tone = r.approval || r.status === 'inProgress' ? 'warning' : r.result === 'succeeded' ? 'success' : r.result === 'failed' ? 'error' : r.result === 'partiallySucceeded' ? 'warning' : undefined
                 const ago = since(now - (r.finished || r.queued))
                 return (
@@ -3025,13 +3031,15 @@ export const register: Register = (on, options) => {
         {/* footer, as OpenCode's: which Claude Code, pinned to the bottom by the spacer */}
         <Box flexGrow={1} />
         <Box flexDirection="column" marginTop={1}>
-          {CC_VERSION !== '' && (
+          <Text color={TURN_RULE}>{'─'.repeat(Math.max(0, cols - 1))}</Text>
+          <Box flexDirection="row" justifyContent="space-between">
             <Text>
               <Text color="success">● </Text>
               <Text bold>Claude Code</Text>
-              <Text dimColor> {CC_VERSION}</Text>
+              {CC_VERSION !== '' && <Text dimColor> {CC_VERSION}</Text>}
             </Text>
-          )}
+            {u?.startedAt !== undefined && <Text dimColor>{since(now - u.startedAt)}</Text>}
+          </Box>
         </Box>
       </Box>
     )
