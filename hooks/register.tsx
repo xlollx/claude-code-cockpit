@@ -2837,20 +2837,24 @@ export const register: Register = (on, options) => {
                   <Text>—</Text>
                 ) : (
                   (() => {
-                    // at most two lines: a long path loses its start, cut at a separator
-                    const room = Math.max(8, (cols - 5) * 2 - 1)
-                    let path = w.cwd
-                    if (path.length > room) {
-                      const tail = path.slice(path.length - room + 1)
-                      const sep = tail.search(/[\\/]/)
-                      path = '…' + (sep >= 0 && sep < tail.length - 1 ? tail.slice(sep) : tail)
+                    // one line when it fits; otherwise the parent folders on the first line (their
+                    // start cut with …) and the folder itself, bold, on the second: never a third
+                    const room = Math.max(8, cols - 5)
+                    const name = w.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || w.cwd
+                    const parent = w.cwd.slice(0, w.cwd.replace(/[\\/]+$/, '').length - name.length)
+                    if (parent.length + name.length <= room) {
+                      return (
+                        <Text>
+                          <Text dimColor>{parent}</Text>
+                          <Text bold>{name}</Text>
+                        </Text>
+                      )
                     }
-                    const name = path.replace(/^.*[\\/](?=[^\\/])/, '').replace(/[\\/]$/, '') || path
                     return (
-                      <Text>
-                        <Text dimColor>{path.slice(0, path.length - name.length - (/[\\/]$/.test(path) ? 1 : 0))}</Text>
-                        <Text bold>{name}</Text>
-                      </Text>
+                      <Box flexDirection="column">
+                        <Text dimColor wrap="truncate-end">{parent.length > room ? '…' + parent.slice(parent.length - room + 1) : parent}</Text>
+                        <Text bold wrap="truncate-end">{cut(name, room)}</Text>
+                      </Box>
                     )
                   })()
                 )}
@@ -3106,7 +3110,7 @@ export const register: Register = (on, options) => {
             ))}
             <Text dimColor>
               {'    '}
-              {kTok(u?.tokens)} / {kTok(u?.window)}
+              {kTok(u?.tokens ?? 0)} / {kTok(u?.window)}
               {narrow ? '' : ' tokens'}
             </Text>
           </Box>,
