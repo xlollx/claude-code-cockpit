@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, ProcessRunInit, Register, RenderNode, SessionRateLimit } from 'claude-code'
+import type { EngineInterface, ProcessRunInit, Register, RenderElement, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { FileEdit, ModelChoice, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
+import type { FileEdit, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
@@ -32,6 +32,9 @@ const pr = atom({ plugin: 'cockpit', key: 'pr' } as const, null as PullRequest |
 const tasks = atom({ plugin: 'cockpit', key: 'tasks' } as const, [] as TaskItem[], { shape: 'tasks-1' })
 const search = atom({ plugin: 'cockpit', key: 'search' } as const, null as SearchResult | null, { shape: 'search-1' })
 const pipes = atom({ plugin: 'cockpit', key: 'pipes' } as const, [] as PipelineRun[], { shape: 'pipes-1' })
+const peers = atom({ plugin: 'cockpit', key: 'peers' } as const, [] as Peer[], { shape: 'peers-1' })
+const peerTo = atom({ plugin: 'cockpit', key: 'peerTo' } as const, null as string | null, { shape: 'peerTo-1' })
+const compactA = atom({ plugin: 'cockpit', key: 'compact' } as const, false, { shape: 'compact-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
@@ -176,7 +179,25 @@ async function openPicker($: EngineInterface, command: 'model' | 'effort') {
   }
 }
 // rows: height requested when the panel sits above the prompt (narrow window); the dock ignores it
-const openPane = ($: EngineInterface) => $.ui.open({ id: PANE, title: TITLE, backgroundColor: PANE_BG, rows: 3 })
+// panelWidth option: columns of the docked panel (Claude Code keeps it between 24 and 45% of
+// the terminal; a width dragged by hand wins); 0 = Claude Code's own share
+let PANEL_COLS = 0
+// compact mode: the ⇥ button next to the panel's ✕ closes the side panel and shows the 2-line
+// summary as a band above the prompt; ⇤ expand there brings the panel back. Remembered
+let COMPACT = false
+const openPane = ($: EngineInterface) =>
+  $.ui.open({ id: PANE, title: TITLE, backgroundColor: PANE_BG, rows: 3, ...(PANEL_COLS > 0 ? { columns: PANEL_COLS } : {}) })
+
+async function toggleCompact($: EngineInterface) {
+  COMPACT = !COMPACT
+  await $.store.set('compact', COMPACT)
+  await update($, compactA, () => COMPACT)
+  if (COMPACT) {
+    await $.ui.close({ id: PANE })
+  } else {
+    await openPane($)
+  }
+}
 
 let ACCENT = '#f5a97f'
 // sub-list numbers and dashes: the accent, softer
@@ -829,7 +850,7 @@ const PALETTES = {
 // option name of a section -> id used for its folded state
 const SECTION_IDS: Record<string, string> = {
   search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
-  actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file',
+  actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file', sessions: 'sessioni',
 }
 let HIDDEN = new Set<string>()
 let CC_VERSION = ''
@@ -856,6 +877,8 @@ function applyOptions(options: Readonly<Record<string, unknown>>) {
       .filter((x): x is string => x !== undefined),
   )
   OPEN_ON_START = options.openOnStart !== false
+  const pw = Number(options.panelWidth)
+  PANEL_COLS = Number.isFinite(pw) && pw >= 24 ? Math.round(pw) : 0
   const pm = Number(options.pipelinesMax)
   PIPES_MAX = Number.isFinite(pm) && pm >= 1 ? Math.round(pm) : 4
   PIPES_ALL = options.pipelinesShow === 'all'
@@ -992,6 +1015,59 @@ async function refreshReminders($: EngineInterface) {
     }
   }
   await update($, reminders, () => list)
+}
+
+// ---------- Other Claude Code sessions on this machine ----------
+// Claude Code keeps one file per running session in <config dir>/sessions/<pid>.json (name,
+// folder, busy/idle). Listed only if its process is still alive; messages go through
+// $.session.send, the same channel as the SendMessage tool
+async function refreshPeers($: EngineInterface) {
+  try {
+    const os = await platform($)
+    const sep = os === 'windows' ? '\\' : '/'
+    const dir = `${(await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await home($)}${sep}.claude`}${sep}sessions`
+    if (!(await $.fs.exists(dir))) {
+      await update($, peers, () => [])
+      return
+    }
+    const r =
+      os === 'windows'
+        ? await run($, ['tasklist', '/FO', 'CSV', '/NH'], { timeoutMs: 15000 })
+        : await run($, ['ps', '-A', '-o', 'pid='], { timeoutMs: 15000 })
+    const alive = new Set((r.stdout.match(os === 'windows' ? /^"[^"]*","(\d+)"/gm : /\d+/g) ?? []).map(x => (/(\d+)"?$/.exec(x)?.[1] ?? '')))
+    const self = await $.session.id()
+    const list: Peer[] = []
+    for (const f of await $.fs.list(dir)) {
+      if (!/^\d+\.json$/.test(f.name)) {
+        continue
+      }
+      try {
+        const j = JSON.parse(await $.fs.read(`${dir}${sep}${f.name}`)) as { pid?: number; sessionId?: string; name?: string; cwd?: string; status?: string }
+        if (j.sessionId === undefined || !alive.has(String(j.pid))) {
+          continue
+        }
+        list.push({ sessionId: j.sessionId, name: j.name ?? String(j.pid), cwd: j.cwd ?? '', status: j.status ?? '', self: j.sessionId === self })
+      } catch {
+        // a file being rewritten: next round
+      }
+    }
+    list.sort((a, b) => Number(b.self) - Number(a.self) || a.name.localeCompare(b.name))
+    await update($, peers, () => list)
+  } catch {
+    // listing is best effort
+  }
+}
+
+async function sendToPeer($: EngineInterface, sessionId: string, name: string, text: string) {
+  if (text.trim() === '') {
+    return
+  }
+  try {
+    const r = await $.session.send({ to: { sessionId }, text })
+    $.ui.toast(r.isDelivered ? `Sent to ${name}` : `Not sent to ${name}: ${r.reason.slice(0, 120)}`)
+  } catch (err) {
+    $.ui.toast(`Not sent: ${String(err).slice(0, 120)}`)
+  }
 }
 
 async function refreshAll($: EngineInterface) {
@@ -1484,6 +1560,10 @@ async function refreshPipes($: EngineInterface, force = false) {
 // /cockpit and /sidebar: refresh and open the panel
 async function openCommand($: EngineInterface) {
   await refreshAll($)
+  // out of compact mode: the side panel replaces the band
+  COMPACT = false
+  await $.store.set('compact', false)
+  await update($, compactA, () => false)
   const r = await openPane($)
 
   return { text: r.isPlaced ? 'Panel open.' : `Panel not shown: ${r.reason ?? 'terminal too narrow'}` }
@@ -1623,6 +1703,196 @@ async function applyTerminalLook($: EngineInterface): Promise<string> {
   return `Terminal look applied (Ember Dark, real bold, padding). Backup: ${backup}. To undo, copy the backup over settings.json.`
 }
 
+// ---------- Uninstall: put back everything the mod changed outside itself ----------
+// /cockpit-uninstall lists what it would do; /cockpit-uninstall yes does it:
+// Windows Terminal settings.json from the first backup the mod took (the state before its
+// first change), the mod's options in Claude Code's settings.json, its stored values (panel
+// state), the pasted images, then the plugin itself. The reminders file is yours: kept.
+async function wtBackups($: EngineInterface) {
+  const path = await wtSettingsPath($)
+  if (path === undefined) {
+    return { path, backups: [] as string[] }
+  }
+  const dir = path.slice(0, path.lastIndexOf('\\'))
+  const backups = (await $.fs.list(dir))
+    .map(x => x.name)
+    .filter(n => /^settings\.json\.cockpit-\d{8}-\d{6}\.bak$/.test(n))
+    .sort()
+    .map(n => `${dir}\\${n}`)
+  return { path, backups }
+}
+
+async function uninstallCockpit($: EngineInterface, really: boolean): Promise<string> {
+  const os = await platform($)
+  const settings = `${await home($)}${os === 'windows' ? '\\' : '/'}.claude${os === 'windows' ? '\\' : '/'}settings.json`
+  const { path: wt, backups } = await wtBackups($)
+  const first = backups[0]
+  const plan = [
+    first !== undefined && wt !== undefined
+      ? `Windows Terminal: restore ${wt} from ${first} (the state before the mod's first change)`
+      : 'Windows Terminal: never changed by the mod, nothing to restore',
+    `Claude Code settings: remove the mod's options (pluginConfigs "cockpit...") from ${settings}`,
+    'Stored panel state (folded sections, models, newstyle): delete',
+    'Pasted images (claude-cockpit temp folder): delete',
+    'Plugin: claude plugin uninstall cockpit@claude-code-cockpit',
+    'Not touched: your reminders file',
+  ]
+  if (!really) {
+    return ['/cockpit-uninstall yes would:', ...plan.map(x => `- ${x}`)].join('\n')
+  }
+  const done: string[] = []
+  const stamp = async () => {
+    const d = new Date(await $.clock.now())
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  }
+  // 1. terminal: the current file is kept next to it before the restore
+  if (first !== undefined && wt !== undefined) {
+    try {
+      await $.fs.write(`${wt}.before-uninstall-${await stamp()}.bak`, await $.fs.read(wt))
+      await $.fs.write(wt, await $.fs.read(first))
+      done.push(`Windows Terminal restored from ${first}`)
+    } catch (err) {
+      done.push(`Windows Terminal NOT restored: ${String(err).slice(0, 120)}`)
+    }
+  }
+  // 2. options in Claude Code's settings.json
+  try {
+    if (await $.fs.exists(settings)) {
+      const text = await $.fs.read(settings)
+      const d = JSON.parse(text) as { pluginConfigs?: Record<string, unknown> }
+      const keys = Object.keys(d.pluginConfigs ?? {}).filter(k => k === 'cockpit' || k.startsWith('cockpit@'))
+      if (keys.length > 0) {
+        await $.fs.write(`${settings}.before-cockpit-uninstall-${await stamp()}.bak`, text)
+        for (const k of keys) {
+          delete d.pluginConfigs?.[k]
+        }
+        if (d.pluginConfigs !== undefined && Object.keys(d.pluginConfigs).length === 0) {
+          delete d.pluginConfigs
+        }
+        await $.fs.write(settings, JSON.stringify(d, null, 2) + '\n')
+        done.push(`options removed from ${settings} (backup next to it)`)
+      }
+    }
+  } catch (err) {
+    done.push(`options NOT removed: ${String(err).slice(0, 120)}`)
+  }
+  // 3. stored values
+  for (const k of await $.store.keys()) {
+    await $.store.delete(k)
+  }
+  done.push('stored panel state deleted')
+  // 4. pasted images
+  try {
+    if (os === 'windows') {
+      const tmp = (await $.env.get('TEMP')) ?? `${await home($)}\\AppData\\Local\\Temp`
+      await run($, ['powershell.exe', '-NoProfile', '-Command', '$p = [Console]::In.ReadLine(); if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }'], {
+        stdin: `${tmp}\\claude-cockpit\n`,
+        timeoutMs: 20000,
+      })
+    } else {
+      await run($, ['sh', '-c', 'rm -rf "${TMPDIR:-/tmp}"/claude-cockpit.*'], { timeoutMs: 20000 })
+    }
+    done.push('pasted images deleted')
+  } catch {
+    done.push('pasted images NOT deleted')
+  }
+  // 5. the plugin
+  let removed = false
+  try {
+    const r = await run($, ['claude', 'plugin', 'uninstall', 'cockpit@claude-code-cockpit'], { timeoutMs: 60000 })
+    removed = r.exitCode === 0
+  } catch {
+    // claude not in PATH: the manual command below
+  }
+  done.push(removed ? 'plugin uninstalled' : 'plugin NOT uninstalled by the mod: run /plugin uninstall cockpit (or remove the folder from CLAUDE_CODE_PLUGIN_DIRS if you load it from a clone)')
+  await update($, enabled, () => false)
+  await $.ui.close({ id: PANE })
+  return ['Cockpit uninstalled:', ...done.map(x => `- ${x}`), 'Restart Claude Code (and Windows Terminal) to see everything as before.'].join('\n')
+}
+
+// The 2-line summary: in a narrow window (panel above the prompt) and in compact mode, where
+// it is drawn as a band above the prompt with ⇤ expand to bring the side panel back
+async function miniView($: EngineInterface, els: { Box: any; Button: any; Text: any }, expand: boolean): Promise<RenderElement> {
+  const { Box, Button, Text } = els
+  const u = await read($, usage)
+  const eff = await read($, effort)
+  const w = await read($, where)
+  const wr = await read($, writes)
+  const rem = await read($, reminders)
+  const list = await read($, files)
+  const pct = u?.percent ?? 0
+  const pctColor = pct >= 80 ? 'error' : pct >= 60 ? 'warning' : ACCENT
+  const today = localStamp(await $.clock.now())
+  const pl = (await read($, pipes)).filter(r => r.status !== 'completed' && r.status !== 'error').length
+  const others = (await read($, peers)).filter(x => !x.self).length
+  const prodAz = isProd(w.azSub)
+  const prodKube = isProd(w.kube)
+  const prodGit = w.branch === 'main' || w.branch === 'master'
+  const dirShort = (w.cwd ?? '').split('\\').slice(-2).join('\\')
+  const sep = <Text dimColor>  ·  </Text>
+
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Box flexDirection="row" flexWrap="wrap">
+        {expand && (
+          <Box marginRight={2}>
+            <Button key="expand" plain onPress={() => void toggleCompact($)}>
+              <Text color={BLUE}>⇤ expand</Text>
+            </Button>
+          </Box>
+        )}
+        <Text color={ACCENT}>{cut(dirShort || '—', 40)}</Text>
+        {sep}
+        <Text dimColor>az </Text>
+        <Text color={prodAz ? PROD : undefined} bold={prodAz}>{w.azSub ?? '—'}</Text>
+        {sep}
+        <Text dimColor>k8s </Text>
+        <Text color={prodKube ? PROD : undefined} bold={prodKube}>{w.kube ?? '—'}</Text>
+        {w.branch !== undefined && (
+          <Text>
+            {sep}
+            <Text dimColor>git </Text>
+            <Text color={prodGit ? 'warning' : undefined}>{w.branch}</Text>
+            {(w.dirty ?? 0) > 0 && <Text color="warning"> ●{w.dirty}</Text>}
+          </Text>
+        )}
+      </Box>
+      <Box flexDirection="row" flexWrap="wrap">
+        <Button key="model-i" onPress={() => void openPicker($, 'model')}>
+          <Text bold>{prettyModel(u?.model)}</Text>
+        </Button>
+        <Text> </Text>
+        <Button key="effort-i" onPress={() => void openPicker($, 'effort')}>
+          <Text color={VIOLET}>{eff ?? 'effort'}</Text>
+        </Button>
+        {sep}
+        <Text color={pctColor}>{bar(pct, 10)} {Math.round(pct)}%</Text>
+        {pl > 0 && (
+          <Text>
+            {sep}
+            <Text color="warning">⏳ {pl} pipeline{pl === 1 ? '' : 's'}</Text>
+          </Text>
+        )}
+        {wr.length > 0 && (
+          <Text>
+            {sep}
+            <Text color={PROD}>✎ {wr.length} writes</Text>
+          </Text>
+        )}
+        {list.length > 0 && <Text>{sep}<Text dimColor>{list.length} file</Text></Text>}
+        {rem.length > 0 && (
+          <Text>
+            {sep}
+            <Text color={rem.some(r => r.due <= today) ? 'error' : 'warning'}>⏰ {rem.length}</Text>
+          </Text>
+        )}
+        {others > 0 && <Text>{sep}<Text dimColor>{others} other session{others === 1 ? '' : 's'}</Text></Text>}
+      </Box>
+    </Box>
+  )
+}
+
 export const register: Register = (on, options) => {
   applyOptions(options)
 
@@ -1635,10 +1905,17 @@ export const register: Register = (on, options) => {
       argumentHint: 'on | off',
     })
     await $.command.register({ name: 'cockpit-setup', description: 'Apply the recommended Windows Terminal look (colours, real bold), with a backup' })
+    await $.command.register({
+      name: 'cockpit-uninstall',
+      description: 'Uninstall the mod and put back what it changed (terminal, options, stored state); without "yes" only lists it',
+      argumentHint: 'yes',
+    })
     const isOn = (await $.store.get('enabled')) !== false
     await update($, enabled, () => isOn)
     const initial = await effortFromSettings($)
     await update($, effort, cur => cur ?? initial)
+    COMPACT = (await $.store.get('compact')) === true
+    await update($, compactA, () => COMPACT)
     const savedCollapsed = (await $.store.get('collapsed')) as string[] | undefined
     await update($, collapsed, () => (Array.isArray(savedCollapsed) ? savedCollapsed : []))
     await loadModels($)
@@ -1646,6 +1923,7 @@ export const register: Register = (on, options) => {
     const ran = await next(e)
     await refreshAll($)
     void refreshPipes($, true)
+    void refreshPeers($)
     void (async () => {
       const st = await terminalState($)
       await update($, termLook, () => st)
@@ -1656,6 +1934,7 @@ export const register: Register = (on, options) => {
     })()
     // az account set / kubectl config use-context done outside here: recheck every 30 s
     $.clock.every(30_000, () => {
+      void refreshPeers($)
       void (async () => {
         await refreshWhere($)
         const b = (await read($, where)).branch
@@ -1673,7 +1952,7 @@ export const register: Register = (on, options) => {
     $.clock.every(300_000, () => {
       void refreshReminders($)
     })
-    if (isOn && OPEN_ON_START) {
+    if (isOn && OPEN_ON_START && !COMPACT) {
       void openPane($)
     }
 
@@ -1735,6 +2014,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'cockpit-setup' }, async $ => ({ text: await applyTerminalLook($) }))
+  on('command.run', { command: 'cockpit-uninstall' }, async ($, e) => ({ text: await uninstallCockpit($, e.args.trim().toLowerCase() === 'yes') }))
   on('command.run', { command: 'cockpit' }, openCommand)
   on('command.run', { command: 'sidebar' }, openCommand)
 
@@ -2179,6 +2459,14 @@ export const register: Register = (on, options) => {
     )
   })
 
+  // Compact mode: the 2-line summary above the prompt instead of the side panel
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (!(await read($, compactA)) || !(await read($, enabled)) || e.props.hasSurvey) {
+      return next(e)
+    }
+    return await miniView($, $.ui.resolve(e), true)
+  })
+
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
     if (!(await read($, enabled)) || e.props.waitingFor !== undefined || e.props.isExpanded === true) {
       return next(e)
@@ -2227,62 +2515,18 @@ export const register: Register = (on, options) => {
     const term = await read($, termLook)
     const tl = await read($, tasks)
     const found = await read($, search)
+    const others = (await read($, peers)).filter(x => !x.self)
+    const target = await read($, peerTo)
+    const targetPeer = others.find(x => x.sessionId === target)
     // by default only what needs an eye: running, queued, waiting for approval, failed
     const pl = (await read($, pipes)).filter(r => PIPES_ALL || r.status !== 'completed' || r.result === 'failed').slice(0, PIPES_MAX)
     const prodAz = isProd(w.azSub)
     const prodKube = isProd(w.kube)
     const prodGit = w.branch === 'main' || w.branch === 'master'
 
-    // Narrow window: the panel sits above the prompt -> minimal 2-line version
+    // Narrow window: the panel sits above the prompt -> the 2-line summary
     if (e.props.placement === 'inline') {
-      const dirShort = (w.cwd ?? '').split('\\').slice(-2).join('\\')
-      const sep = <Text dimColor>  ·  </Text>
-
-      return (
-        <Box flexDirection="column" paddingX={1}>
-          <Box flexDirection="row" flexWrap="wrap">
-            <Text color={ACCENT}>{cut(dirShort || '—', 40)}</Text>
-            {sep}
-            <Text dimColor>az </Text>
-            <Text color={prodAz ? PROD : undefined} bold={prodAz}>{w.azSub ?? '—'}</Text>
-            {sep}
-            <Text dimColor>k8s </Text>
-            <Text color={prodKube ? PROD : undefined} bold={prodKube}>{w.kube ?? '—'}</Text>
-            {w.branch !== undefined && (
-              <Text>
-                {sep}
-                <Text dimColor>git </Text>
-                <Text color={prodGit ? 'warning' : undefined}>{w.branch}</Text>
-                {(w.dirty ?? 0) > 0 && <Text color="warning"> ●{w.dirty}</Text>}
-              </Text>
-            )}
-          </Box>
-          <Box flexDirection="row" flexWrap="wrap">
-            <Button key="model-i" onPress={() => void openPicker($, 'model')}>
-              <Text bold>{prettyModel(u?.model)}</Text>
-            </Button>
-            <Text> </Text>
-            <Button key="effort-i" onPress={() => void openPicker($, 'effort')}>
-              <Text color={VIOLET}>{eff ?? 'effort'}</Text>
-            </Button>
-            {sep}
-            <Text color={pctColor}>{bar(pct, 10)} {Math.round(pct)}%</Text>
-            {wr.length > 0 && (
-              <Text>
-                {sep}
-                <Text color={PROD}>✎ {wr.length} writes</Text>
-              </Text>
-            )}
-            {list.length > 0 && <Text>{sep}<Text dimColor>{list.length} file</Text></Text>}
-            {rem.length > 0 && (
-              <Text>
-                {sep}
-                <Text color={rem.some(r => r.due <= today) ? 'error' : 'warning'}>⏰ {rem.length}</Text>
-              </Text>
-            )}
-          </Box>
-        </Box>
-      )
+      return await miniView($, $.ui.resolve(e), false)
     }
 
     // Collapsible section: click on the title opens/closes it, the state persists across sessions
@@ -2318,7 +2562,13 @@ export const register: Register = (on, options) => {
     return (
       // at least as tall as the panel, so the footer sits on its bottom edge when the
       // sections are short (when they are longer it follows them)
-      <Box flexDirection="column" paddingLeft={6} paddingRight={2} paddingTop={1} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
+      <Box flexDirection="column" paddingLeft={6} paddingRight={2} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
+        {/* next to the panel's ✕: shrink the panel to a narrow summary */}
+        <Box flexDirection="row" justifyContent="flex-end">
+          <Button key="compact" plain onPress={() => void toggleCompact($)}>
+            <Text color={BLUE}>⇥ compact</Text>
+          </Button>
+        </Box>
         {section('dove', 'Where you are', ACCENT, undefined,
           <Box flexDirection="column">
             <Box flexDirection="row">
@@ -2430,6 +2680,37 @@ export const register: Register = (on, options) => {
           </Box>,
         )}
 
+        {others.length > 0 &&
+          section('sessioni', 'Sessions', BLUE, others.length,
+            <Box flexDirection="column">
+              {others.map(x => (
+                <Button
+                  key={`peer-${x.sessionId}`}
+                  plain
+                  onPress={() => void update($, peerTo, cur => (cur === x.sessionId ? null : x.sessionId))}
+                >
+                  <Text>
+                    <Text color={x.status === 'busy' ? 'warning' : 'success'}>{x.sessionId === target ? '▸ ' : '● '}</Text>
+                    <Text bold={x.sessionId === target}>{cut(x.name, cols - 10)}</Text>
+                    <Text dimColor> {x.status}</Text>
+                  </Text>
+                </Button>
+              ))}
+              {targetPeer !== undefined && (
+                <Box flexDirection="column" marginTop={1}>
+                  <Text dimColor>{cut(targetPeer.cwd.replace(/^.*[\\/]/, ''), cols - 2)}</Text>
+                  <Input
+                    key={`peer-msg-${targetPeer.sessionId}`}
+                    placeholder={`message to ${cut(targetPeer.name, 20)}, Enter (Esc to leave)`}
+                    value=""
+                    submitLabel="send"
+                    onSubmit={t => void sendToPeer($, targetPeer.sessionId, targetPeer.name, t)}
+                  />
+                </Box>
+              )}
+              {targetPeer === undefined && <Text dimColor>click a session to write to it</Text>}
+            </Box>,
+          )}
         {section('modalita', 'Active modes', VIOLET, act.length + (ns ? 1 : 0),
           <Box flexDirection="column">
             <Text dimColor={!ns}>

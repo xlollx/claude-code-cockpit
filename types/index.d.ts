@@ -54,6 +54,8 @@ export type SearchResult = {
 }
 
 /** An Azure DevOps pipeline run requested by you (status `error` = the project could not be read) */
+export type Peer = { sessionId: string; name: string; cwd: string; status: string; self: boolean }
+
 export type PipelineRun = {
   project: string
   id: number
@@ -102,6 +104,12 @@ declare module 'claude-code' {
       pipes: Shaped<PipelineRun[]>
       /** Windows Terminal look: na (not Windows Terminal), pending (not applied), done */
       termLook: Shaped<'na' | 'pending' | 'done'>
+      /** Claude Code sessions running on this machine (this one marked self) */
+      peers: Shaped<Peer[]>
+      /** session id chosen in Sessions to write to */
+      peerTo: Shaped<string | null>
+      /** compact panel (session copy of the value in $.store) */
+      compact: Shaped<boolean>
     }
   }
 }

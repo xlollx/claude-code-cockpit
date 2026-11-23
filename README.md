@@ -29,12 +29,27 @@ The panel opens by itself in new sessions (turn that off with `openOnStart`). No
 
 **Windows Terminal**: the first time, the mod offers the recommended terminal look (a toast and an orange `Terminal look` button in Quick actions, or `/cockpit-setup`). One press backs up Windows Terminal's `settings.json` and sets, on the profile Claude Code runs in, the "Ember Dark" colour scheme (`#1E1E1E` background), real bold text (`intenseTextStyle: "all"`, without which headings and inline code do not look bold) and a little padding. The mod never changes the terminal without that press; to undo, copy the backup over `settings.json`. In other terminals pick a dark background close to `#1E1E1E` (the colours are in `extras/`).
 
+## Uninstall
+
+One command puts everything back as it was before the mod:
+
+```
+/cockpit-uninstall yes
+```
+
+It restores Windows Terminal's `settings.json` from the first backup the mod took (only if you pressed `Terminal look`), removes the mod's options from `~/.claude/settings.json` (keeping a backup next to it), deletes the panel state the mod stored and the pasted images, and runs `claude plugin uninstall cockpit@claude-code-cockpit`. Your reminders file is not touched. Then restart Claude Code and Windows Terminal.
+
+`/cockpit-uninstall` without `yes` only lists what it would do. If you load the mod from a clone (`CLAUDE_CODE_PLUGIN_DIRS` or `--plugin-dir`), remove that folder from the variable as the last step.
+
+By hand: `/plugin uninstall cockpit`, then copy `settings.json.cockpit-<date>.bak` over Windows Terminal's `settings.json` if you used `Terminal look`.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `/cockpit` (alias `/sidebar`) | opens the side panel again after you closed it with `×` |
 | `/cockpit-setup` | applies the recommended Windows Terminal look (see Install), with a backup |
+| `/cockpit-uninstall` | lists what uninstalling puts back; `/cockpit-uninstall yes` does it (see Uninstall) |
 | `/newstyle off` | turns the whole look off: panel and chat styling. `/newstyle on` turns it back on. The choice is remembered across sessions |
 
 ## The side panel
@@ -47,6 +62,7 @@ The panel sits on the right of the chat when the terminal is wide enough (about 
 - Sections with nothing to show (no PR, no pipelines, no reminders) stay hidden.
 - Hide sections you never want with the `hiddenSections` option.
 - At the bottom edge: `● Claude Code <version>`, always pinned there while the sections scroll.
+- **`⇥ compact`**, at the top next to the panel's `✕`, closes the side panel and shows a 2-line summary above the prompt instead (folder, subscription, kubectl context, branch, model and effort, context, running pipelines, writes, reminders, other sessions), so the chat gets the whole width; `⇤ expand` on that bar, or `/cockpit`, brings the side panel back. The choice is remembered across sessions.
 
 The sections, from top to bottom:
 
@@ -76,6 +92,10 @@ Type text in the field and press **Enter**: the panel lists every occurrence in 
 - **Esc** gives the keyboard back to the prompt.
 
 ![Searching "kube": hits in the panel, newest first, and the match highlighted in the chat](docs/search.png)
+
+### Sessions
+
+The other Claude Code sessions running on this computer, each with its name and whether it is busy or idle (read from Claude Code's own session files, only those whose process is alive). Click one to select it: a text field appears, type a message and press Enter to send it to that session, as the `SendMessage` tool does. Click it again to deselect. Hidden when no other session runs.
 
 ### Active modes
 
@@ -199,7 +219,8 @@ Set them in `/config` (the plugin's rows) or in `settings.json` under `pluginCon
 |---|---|---|
 | `palette` | `dark` | `light` for terminals with a light background |
 | `proseWidth` | `0` | wrap reply text at this column (40 or more, e.g. `100` for shorter lines); `0` uses the whole chat width |
-| `hiddenSections` | empty | panel sections to hide, comma separated: `search`, `pipelines`, `where`, `model`, `modes`, `context`, `pr`, `tasks`, `actions`, `writes`, `reminders`, `files` |
+| `panelWidth` | `0` | columns of the side panel, 24 or more (e.g. `32` for a small, compact panel on a wide screen); `0` lets Claude Code decide. Dragging the panel edge by hand also works and wins |
+| `hiddenSections` | empty | panel sections to hide, comma separated: `search`, `sessions`, `pipelines`, `where`, `model`, `modes`, `context`, `pr`, `tasks`, `actions`, `writes`, `reminders`, `files` |
 | `prodPattern` | `prod` | regular expression that marks a subscription, kubectl context or branch as production (`noprod`/`nonprod` never match) |
 | `openOnStart` | `true` | open the panel when a session starts |
 | `inlineCodeColor` | empty | colour of `inline code` in replies, as `#rrggbb` (default: cyan `#56b6c2` on dark, `#0e7490` on light) |
@@ -250,7 +271,7 @@ So you know what you are trusting:
 
 These come from what Claude Code lets a mod change:
 
-- The prompt box and the height of the docked panel cannot be restyled.
+- The prompt box and the height of the docked panel cannot be restyled, and the panel always docks on the right: Claude Code offers no left side.
 - `!` shell rows and the `❯ /command` row are drawn by Claude Code and keep their default look.
 - MCP server status is not available to mods.
 - The `※ recap` line Claude Code shows when you come back to a session is a system row that mods cannot restyle.
