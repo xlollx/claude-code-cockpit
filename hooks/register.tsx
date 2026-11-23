@@ -2465,12 +2465,13 @@ export const register: Register = (on, options) => {
                   </Box>
                   <Button
                     key={`code-${ci}`}
+                    plain
                     onPress={async press => {
                       const r = await $.ui.copy({ text: src, surface: press.surface })
                       $.ui.toast(r.isCopied ? `Code copied (${src.split('\n').length} lines)` : 'Copy failed')
                     }}
                   >
-                    <Text color={BLUE}>⧉ Copy code</Text>
+                    <Text backgroundColor={CHIP_GREEN}><Text color={GREEN}>{' ⧉ '}</Text>{'Copy code '}</Text>
                   </Button>
                 </Box>
               )
@@ -2505,19 +2506,20 @@ export const register: Register = (on, options) => {
                     </Box>
                   )}
                   <Box flexDirection="row">
-                    <Button key={`tab-${i}`} onPress={() => void copyTable($, t)}>
-                      <Text color={BLUE}>⧉ Copy table{nTables > 1 ? ` ${i}` : ''}</Text>
+                    <Button key={`tab-${i}`} plain onPress={() => void copyTable($, t)}>
+                      <Text backgroundColor={CHIP_BLUE}><Text color={BLUE}>{' ⧉ '}</Text>{`Copy table${nTables > 1 ? ` ${i}` : ''} `}</Text>
                     </Button>
                     <Box marginLeft={1}>
                       <Button
                         key={`tabtxt-${i}`}
+                        plain
                         onPress={() => {
                           // a <pre> block: Teams pastes it as a code block, compact and aligned
                           const txt = tableText(t)
                           void copyRich($, `<pre style='font-family:Consolas,monospace;font-size:10pt'>${esc(txt)}</pre>`, txt.replace(/\n/g, '\r\n'), 'Table copied as a code block: paste it into Teams, Outlook or Word')
                         }}
                       >
-                        <Text color={BLUE}>⧉ Copy as code</Text>
+                        <Text backgroundColor={CHIP_VIOLET}><Text color={VIOLET}>{' ⧉ '}</Text>{'Copy as code '}</Text>
                       </Button>
                     </Box>
                   </Box>
@@ -2560,8 +2562,8 @@ export const register: Register = (on, options) => {
                       {prose(quote)}
                     </Box>
                   </Box>
-                  <Button key={`quote-${qi}`} onPress={() => void copyRich($, mdHtml(quote), mdPlain(quote), 'Text copied with its formatting: paste it into Teams, Outlook or a web form')}>
-                    <Text color={BLUE}>⧉ Copy text</Text>
+                  <Button key={`quote-${qi}`} plain onPress={() => void copyRich($, mdHtml(quote), mdPlain(quote), 'Text copied with its formatting: paste it into Teams, Outlook or a web form')}>
+                    <Text backgroundColor={CHIP_ORANGE}><Text color={ACCENT}>{' ⧉ '}</Text>{'Copy text '}</Text>
                   </Button>
                 </Box>
               )
