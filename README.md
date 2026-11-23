@@ -121,6 +121,8 @@ Production is easy to spot: a subscription, context or branch whose name matches
 
 ### Aside
 
+![Aside: a side question answered in a box in the panel, the chat untouched](docs/aside.png)
+
 A side question, like Claude Code's `/btw`, in a small window of its own. Type it and press Enter: Claude answers with the conversation in mind, briefly, in a box under the field, and nothing is added to the chat. Under the answer, `⧉ Copy` and `✕ Close`; earlier side questions stay underneath on one line each, a click shows them again (the last 5). Each question is one request to the model, read from the prompt cache, and counts toward your usage like any other.
 
 ### Search
