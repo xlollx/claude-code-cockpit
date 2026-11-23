@@ -505,7 +505,105 @@ async function copyTable($: EngineInterface, t: Table) {
     t.rows.map(r => '<tr>' + r.map(c => `<td style='${td}'>${cellHtml(c)}</td>`).join('') + '</tr>').join('') +
     '</table>'
   const tsv = [t.header, ...t.rows].map(r => r.map(cellText).join('\t')).join('\r\n')
-  const ok = `Table copied (${t.rows.length} rows): paste it into Teams, Outlook or Excel`
+  await copyRich($, html, tsv, `Table copied (${t.rows.length} rows): paste it into Teams, Outlook or Excel`)
+}
+
+// Inline markdown -> HTML: bold, italics, code, [links](url) and bare URLs
+function inlineHtml(md: string) {
+  const urls: string[] = []
+  const keep = (h: string) => `\u0000${urls.push(h) - 1}\u0000`
+  return esc(md)
+    .replace(/`([^`]+)`/g, (_, c: string) => keep(`<code style='font-family:Consolas,monospace'>${c}</code>`))
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, (_, t: string, u: string) => keep(`<a href='${u}'>${t}</a>`))
+    .replace(/https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/g, u => keep(`<a href='${u}'>${u}</a>`))
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?!\*)/g, '$1<i>$2</i>')
+    .replace(/(^|\W)_([^_\s][^_]*?)_(?=\W|$)/g, '$1<i>$2</i>')
+    .replace(/\u0000(\d+)\u0000/g, (_, n: string) => urls[Number(n)] ?? '')
+}
+
+// Markdown text (paragraphs, headings, bulleted and numbered lists, one level of nesting)
+// -> HTML that Teams, Outlook, Word and web forms paste with its formatting
+function mdHtml(md: string) {
+  const out: string[] = []
+  const stack: { tag: 'ul' | 'ol'; indent: number }[] = []
+  const closeTo = (indent: number) => {
+    while (stack.length > 0 && (stack[stack.length - 1]?.indent ?? 0) >= indent) {
+      out.push(`</${stack.pop()?.tag}>`)
+    }
+  }
+  let para: string[] = []
+  const flush = () => {
+    if (para.length > 0) {
+      out.push(`<p>${para.map(inlineHtml).join('<br>')}</p>`)
+      para = []
+    }
+  }
+  for (const line of md.split('\n')) {
+    const li = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line)
+    const hd = /^#{1,6}\s+(.*)$/.exec(line)
+    if (li) {
+      flush()
+      const indent = (li[1] ?? '').length
+      const tag = /\d/.test(li[2] ?? '') ? 'ol' : 'ul'
+      const top = stack[stack.length - 1]
+      if (top === undefined || indent > top.indent) {
+        out.push(`<${tag}>`)
+        stack.push({ tag, indent })
+      } else {
+        closeTo(indent + 1)
+        if (stack.length === 0 || stack[stack.length - 1]?.tag !== tag) {
+          closeTo(indent)
+          out.push(`<${tag}>`)
+          stack.push({ tag, indent })
+        }
+      }
+      out.push(`<li>${inlineHtml(li[3] ?? '')}</li>`)
+    } else if (line.trim() === '') {
+      flush()
+      closeTo(0)
+    } else if (hd) {
+      flush()
+      closeTo(0)
+      out.push(`<p><b>${inlineHtml(hd[1] ?? '')}</b></p>`)
+    } else if (stack.length > 0 && /^\s+\S/.test(line)) {
+      // continuation of a list item
+      out[out.length - 1] = (out[out.length - 1] ?? '').replace(/<\/li>$/, `<br>${inlineHtml(line.trim())}</li>`)
+    } else {
+      closeTo(0)
+      para.push(line)
+    }
+  }
+  flush()
+  closeTo(0)
+  return `<div style='font-family:Segoe UI,sans-serif;font-size:10.5pt'>${out.join('')}</div>`
+}
+
+// Markdown text -> plain text for editors without HTML: markers removed, links as "text (url)"
+const mdPlain = (md: string) =>
+  md
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '$1 ($2)')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?!\*)/g, '$1$2')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\n/g, '\r\n')
+
+// The text of the quoted blocks ("> ...") in a piece, quote markers removed
+function quoteOf(md: string) {
+  const lines = md.split('\n')
+  if (!lines.some(l => /^>/.test(l))) {
+    return ''
+  }
+  return lines
+    .filter(l => /^>/.test(l))
+    .map(l => l.replace(/^>\s?/, ''))
+    .join('\n')
+    .trim()
+}
+
+// Clipboard with HTML (formatting kept in Teams, Outlook, Word, web forms) and plain text
+async function copyRich($: EngineInterface, html: string, tsv: string, ok: string) {
   try {
     const os = await platform($)
     if (os === 'windows') {
@@ -1871,6 +1969,7 @@ export const register: Register = (on, options) => {
     const nTables = pieces.filter(p => p.table !== undefined).length
     let k = 0
     let kc = 0
+    let kq = 0
     // usable chat width: viewport minus bullet, margin toward the sidebar and some breathing room
     const maxW = Math.max(30, (e.viewport?.columns ?? 100) - 2 - GAP - 2)
     const proseW = Math.min(maxW, PROSE_MAX)
@@ -1969,6 +2068,18 @@ export const register: Register = (on, options) => {
               )
             }
 
+            const quote = quoteOf(p.text)
+            if (quote !== '') {
+              const qi = ++kq
+              return (
+                <Box flexDirection="column" width={proseW} marginTop={top}>
+                  {prose(p.text)}
+                  <Button key={`quote-${qi}`} onPress={() => void copyRich($, mdHtml(quote), mdPlain(quote), 'Text copied with its formatting: paste it into Teams, Outlook or a web form')}>
+                    <Text color={BLUE}>⧉ Copy text</Text>
+                  </Button>
+                </Box>
+              )
+            }
             return (
               <Box width={proseW} marginTop={top}>
                 {prose(p.text)}

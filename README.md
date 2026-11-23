@@ -177,6 +177,10 @@ The files Claude edited in the session, with how many times (`×3`).
 
 Click `⧉ Copy code` under any code block to copy its content, without the box, the language name or the indentation of the reply. It works for blocks inside a list too. A toast confirms how many lines were copied.
 
+### Copy text
+
+Under every quoted block (`> ...`), for example text Claude prepares for you to paste into a ticket or a mail, click `⧉ Copy text`: it is copied **with its formatting** (bold, italics, inline code, links, bulleted and numbered lists), so Teams, Outlook, Word and web forms paste it formatted, not as markdown. Editors that take plain text get it without markdown markers, links written as `text (url)`.
+
 ### Copy table
 
 Click `⧉ Copy table` under any table: it is copied **as a real table**, so pasting into Teams, Outlook, Word or Excel gives rows and columns, not pipes and dashes.
