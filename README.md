@@ -64,6 +64,9 @@ The panel sits on the right of the chat when the terminal is wide enough (about 
 - At the bottom edge: `● Claude Code <version>`, always pinned there while the sections scroll.
 - **`⇥ compact`**, at the top next to the panel's `✕`, closes the side panel and shows a 2-line summary above the prompt instead (folder, subscription, kubectl context, branch, model and effort, context, running pipelines, writes, reminders, other sessions), so the chat gets the whole width; `⇤ expand` on that bar, or `/cockpit`, brings the side panel back. The choice is remembered across sessions.
 
+![Compact mode: the side panel gives way to a 2-line summary above the prompt](docs/compact.png)
+
+
 The sections, from top to bottom:
 
 ### Where you are

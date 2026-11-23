@@ -323,6 +323,30 @@ function splitLists(md: string): Part[] {
 
 type Table = { header: string[]; rows: string[][] }
 
+// Quoted blocks ("> ...") as pieces of their own, apart from the text around them
+function splitQuotes(md: string): Part[] {
+  const out: Part[] = []
+  let buf: string[] = []
+  let inQuote = false
+  const flush = () => {
+    const text = buf.join('\n').replace(/^\n+|\n+$/g, '')
+    if (text.trim() !== '') {
+      out.push({ text })
+    }
+    buf = []
+  }
+  for (const line of md.split('\n')) {
+    const q = /^>/.test(line)
+    if (q !== inQuote && line.trim() !== '') {
+      flush()
+      inQuote = q
+    }
+    buf.push(line)
+  }
+  flush()
+  return out
+}
+
 // Splits a markdown text into text pieces and tables (line starting with |
 // followed by a line of dashes), in the order they appear
 function splitTables(md: string): Part[] {
@@ -1824,8 +1848,8 @@ async function miniView($: EngineInterface, els: { Box: any; Button: any; Text: 
   const pct = u?.percent ?? 0
   const pctColor = pct >= 80 ? 'error' : pct >= 60 ? 'warning' : ACCENT
   const today = localStamp(await $.clock.now())
-  const pl = (await read($, pipes)).filter(r => r.status !== 'completed' && r.status !== 'error').length
-  const others = (await read($, peers)).filter(x => !x.self).length
+  const pl = HIDDEN.has('pipelines') ? 0 : (await read($, pipes)).filter(r => r.status !== 'completed' && r.status !== 'error').length
+  const others = HIDDEN.has('sessioni') ? 0 : (await read($, peers)).filter(x => !x.self).length
   const prodAz = isProd(w.azSub)
   const prodKube = isProd(w.kube)
   const prodGit = w.branch === 'main' || w.branch === 'master'
@@ -2254,6 +2278,7 @@ export const register: Register = (on, options) => {
     )
     const pieces = splitCode(e.props.text)
       .flatMap(p => (p.code === undefined ? splitTables(p.text) : [p]))
+      .flatMap(p => (p.code === undefined && p.table === undefined ? splitQuotes(p.text) : [p]))
       .flatMap((p, i, all) => (p.code === undefined && p.table === undefined ? splitLabels(p.text, all[i + 1]?.table !== undefined) : [p]))
       .flatMap(p => (p.code === undefined && p.table === undefined && p.label === undefined ? splitLists(p.text) : [p]))
     const nTables = pieces.filter(p => p.table !== undefined).length
