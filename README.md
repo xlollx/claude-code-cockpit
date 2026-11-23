@@ -41,6 +41,14 @@ The panel opens by itself in new sessions (turn that off with `openOnStart`). No
 
 ## Update
 
+At the Claude Code prompt:
+
+```
+/cockpit-update
+```
+
+It works out how the mod is installed. From a clone it runs `git pull --ff-only`, and the new version loads by itself a moment later. From the marketplace it updates the plugin; then restart Claude Code. By hand:
+
 - **Installed from the marketplace**: `/plugin update cockpit@claude-code-cockpit` (or `claude plugin update cockpit@claude-code-cockpit` from a shell), then restart Claude Code.
 - **Loaded from a clone** (`CLAUDE_CODE_PLUGIN_DIRS` or `--plugin-dir`): `git -C <folder> pull --ff-only`; open sessions pick the new version up at the end of their next turn, no restart needed.
 
@@ -73,6 +81,7 @@ By hand: `/plugin uninstall cockpit`, then copy `settings.json.cockpit-<date>.ba
 |---|---|
 | `/cockpit` (alias `/sidebar`) | opens the side panel again after you closed it with `×` |
 | `/cockpit-setup` | applies the recommended Windows Terminal look (see Install), with a backup |
+| `/cockpit-update` | updates the mod to its latest version (see Update) |
 | `/cockpit-uninstall` | lists what uninstalling puts back; `/cockpit-uninstall yes` does it (see Uninstall) |
 | `/newstyle off` | turns the whole look off: panel and chat styling. `/newstyle on` turns it back on. The choice is remembered across sessions |
 
@@ -284,7 +293,7 @@ None of these is required; each section stays hidden or empty when its source is
 
 So you know what you are trusting:
 
-- **Processes**: `git` (branch, status, remote, and `git credential fill` to read the token git already stores), `az account get-access-token` (only when Azure DevOps projects are watched), PowerShell on Windows / `osascript` on macOS / `wl-copy`, `wl-paste` or `xclip` on Linux (only when you press a copy or paste button). They run in every folder you open Claude Code in. On Windows each command is looked up by absolute path in `PATH`, never in the current folder, so a repository cannot ship its own `git.exe` or `az.cmd` to be run.
+- **Processes**: `git` (branch, status, remote, and `git credential fill` to read the token git already stores), `az account get-access-token` (only when Azure DevOps projects are watched), PowerShell on Windows / `osascript` on macOS / `wl-copy`, `wl-paste` or `xclip` on Linux (only when you press a copy or paste button), `git pull --ff-only` in the mod's own folder or `claude plugin update` (only when you run `/cockpit-update`). They run in every folder you open Claude Code in. On Windows each command is looked up by absolute path in `PATH`, never in the current folder, so a repository cannot ship its own `git.exe` or `az.cmd` to be run.
 - **Network**: only GET requests, only to `api.github.com` and `dev.azure.com`. The host is fixed in the code; a git remote or a command can choose the organization or repository, never the host. Tokens stay in memory and are never shown, logged or written to disk.
 - **Files written**: Windows Terminal's `settings.json` and its backup (only when you press `Terminal look` or run `/cockpit-setup`), the reminders file (only when you press `✓ done` or `+1 day`) and the pasted image (in `%TEMP%\claude-cockpit\` on Windows, in a private `mktemp -d` folder on macOS and Linux).
 - The Write commands list is a reminder of what you ran, not a security control: a command wrapped in a script or `bash -c` is not seen.

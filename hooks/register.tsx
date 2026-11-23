@@ -1652,6 +1652,39 @@ async function refreshPipes($: EngineInterface, force = false) {
 }
 
 // /cockpit and /sidebar: refresh and open the panel
+// /cockpit-update: the mod's own folder is a git clone -> pull it (the new version loads by
+// itself when plugin.json changes); otherwise it came from the marketplace -> update it there
+async function updateCockpit($: EngineInterface): Promise<string> {
+  const root = $.plugin.root
+  const version = async () => {
+    try {
+      return (JSON.parse((await readText($, `${root}/.claude-plugin/plugin.json`)) ?? '{}') as { version?: string }).version ?? '?'
+    } catch {
+      return '?'
+    }
+  }
+  const before = await version()
+  const short = (r: { stdout: string; stderr: string }) => (r.stderr || r.stdout).trim().split('\n').slice(-3).join(' ').slice(0, 300)
+  try {
+    if (await $.fs.exists(`${root}/.git`)) {
+      const r = await run($, ['git', '-C', root, 'pull', '--ff-only'], { timeoutMs: 60_000 })
+      if (r.exitCode !== 0) {
+        return `Not updated: the clone has local changes or commits that are not on GitHub (${root}). git says: ${short(r)}`
+      }
+      const after = await version()
+      return before === after ? `cockpit ${after} is already the latest.` : `cockpit ${before} -> ${after}. It loads by itself in a moment.`
+    }
+    const m = await run($, ['claude', 'plugin', 'marketplace', 'update', 'claude-code-cockpit'], { timeoutMs: 60_000 })
+    const r = await run($, ['claude', 'plugin', 'update', 'cockpit@claude-code-cockpit'], { timeoutMs: 60_000 })
+    if (r.exitCode !== 0) {
+      return `Not updated: ${short(r.exitCode !== 0 ? r : m)}. From a shell: claude plugin update cockpit@claude-code-cockpit`
+    }
+    return `cockpit updated from the marketplace (was ${before}). Restart Claude Code to load it.`
+  } catch (err) {
+    return `Not updated: ${String(err).slice(0, 300)}`
+  }
+}
+
 async function openCommand($: EngineInterface) {
   // out of compact mode: the side panel replaces the band. Open first with what is already
   // known, then refresh: the panel fills in as answers arrive instead of waiting for the network
@@ -2019,6 +2052,7 @@ export const register: Register = (on, options) => {
       argumentHint: 'on | off',
     })
     await $.command.register({ name: 'cockpit-setup', description: 'Apply the recommended Windows Terminal look (colours, real bold), with a backup' })
+    await $.command.register({ name: 'cockpit-update', description: 'Update the cockpit mod to its latest version (git pull of a clone, or the marketplace)' })
     await $.command.register({
       name: 'cockpit-uninstall',
       description: 'Uninstall the mod and put back what it changed (terminal, options, stored state); without "yes" only lists it',
@@ -2124,6 +2158,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'cockpit-setup' }, async $ => ({ text: await applyTerminalLook($) }))
+  on('command.run', { command: 'cockpit-update' }, async $ => ({ text: await updateCockpit($) }))
   on('command.run', { command: 'cockpit-uninstall' }, async ($, e) => ({ text: await uninstallCockpit($, e.args.trim().toLowerCase() === 'yes') }))
   on('command.run', { command: 'cockpit' }, openCommand)
   on('command.run', { command: 'sidebar' }, openCommand)
