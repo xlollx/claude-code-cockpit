@@ -386,6 +386,14 @@ function splitTables(md: string): Part[] {
 }
 
 let HEAD_BG = '#33334a'
+// panel header band and neutral chips: a grey a little lighter than the panel
+let BAND_BG = '#323232'
+// Quick actions chips: a dark tint of each accent behind its icon and label
+let CHIP_ORANGE = '#3d2f27'
+let CHIP_BLUE = '#263347'
+let CHIP_VIOLET = '#342b47'
+let CHIP_GREEN = '#26392c'
+let GREEN = '#7fc98f'
 let ZEBRA_BG = '#252528'
 let TABLE_BORDER = '#55556a'
 
@@ -864,11 +872,13 @@ const PALETTES = {
     PANE_BG: '#262626', ACCENT: '#f5a97f', ACCENT_SOFT: '#b88468', BLUE: '#6ea8f7', VIOLET: '#a98bdc', PROD: '#ef5f6b',
     USER_BG: '#2b2b2f', CODE_BG: '#262629', TOOL_BG: '#28282c', TOOL_BAR: '#5c5c66', CODE_BAR: '#98c379', TURN_RULE: '#3a3a40',
     HEAD_BG: '#33334a', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#ffe28a', CODE_INLINE: '#56b6c2',
+    BAND_BG: '#323232', CHIP_ORANGE: '#3d2f27', CHIP_BLUE: '#263347', CHIP_VIOLET: '#342b47', CHIP_GREEN: '#26392c', GREEN: '#7fc98f',
   },
   light: {
     PANE_BG: '#ececec', ACCENT: '#c2410c', ACCENT_SOFT: '#e29470', BLUE: '#1d4ed8', VIOLET: '#6d28d9', PROD: '#b91c1c',
     USER_BG: '#eef2f7', CODE_BG: '#f4f4f5', TOOL_BG: '#f1f1f3', TOOL_BAR: '#a1a1aa', CODE_BAR: '#16a34a', TURN_RULE: '#d4d4d8',
     HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f', CODE_INLINE: '#0e7490',
+    BAND_BG: '#dedede', CHIP_ORANGE: '#fbe2d2', CHIP_BLUE: '#dbe6fb', CHIP_VIOLET: '#ebe2fb', CHIP_GREEN: '#d9f1df', GREEN: '#15803d',
   },
 }
 
@@ -886,7 +896,7 @@ let PIPES_ALL = false
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
-  ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, TOOL_BG, TOOL_BAR, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE } = pal)
+  ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, TOOL_BG, TOOL_BAR, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE, BAND_BG, CHIP_ORANGE, CHIP_BLUE, CHIP_VIOLET, CHIP_GREEN, GREEN } = pal)
   const width = Number(options.proseWidth)
   // 0 (default) = the whole chat width; 40 or more = wrap reply text at that column
   PROSE_MAX = Number.isFinite(width) && width >= 40 ? Math.round(width) : Number.POSITIVE_INFINITY
@@ -1996,11 +2006,11 @@ async function miniView($: EngineInterface, els: { Box: any; Button: any; Text: 
       </Box>
       <Box flexDirection="row" flexWrap="wrap">
         <Button key="model-i" plain onPress={() => void openPicker($, 'model')}>
-          <Text bold backgroundColor={HEAD_BG}>{` ${prettyModel(u?.model)} `}</Text>
+          <Text bold backgroundColor={BAND_BG}>{` ${prettyModel(u?.model)} `}</Text>
         </Button>
         <Text> </Text>
         <Button key="effort-i" plain onPress={() => void openPicker($, 'effort')}>
-          <Text color={VIOLET} backgroundColor={HEAD_BG}>{` ${eff ?? 'effort'} `}</Text>
+          <Text color={VIOLET} backgroundColor={BAND_BG}>{` ${eff ?? 'effort'} `}</Text>
         </Button>
         {sep}
         <Text>
@@ -2740,7 +2750,7 @@ export const register: Register = (on, options) => {
       // sections are short (when they are longer it follows them)
       <Box flexDirection="column" paddingLeft={2} paddingRight={2} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
         {/* next to the panel's ✕: shrink the panel to a narrow summary */}
-        <Box flexDirection="row" justifyContent="space-between" marginBottom={1} backgroundColor={HEAD_BG} paddingX={1}>
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={1} backgroundColor={BAND_BG} paddingX={1}>
           <Text>
             <Text color={ACCENT} bold>◆ cockpit</Text>
           </Text>
@@ -2961,10 +2971,10 @@ export const register: Register = (on, options) => {
           // chips: plain buttons on a tinted background instead of [ bracketed ] ones
           <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
             <Button key="act-compact" plain onPress={() => void runOrFill($, 'compact', '')}>
-              <Text backgroundColor={HEAD_BG}>{' Compact '}</Text>
+              <Text backgroundColor={CHIP_ORANGE}><Text color={ACCENT}>{' ⇊ '}</Text>{'Compact '}</Text>
             </Button>
             <Button key="act-context" plain onPress={() => void runOrFill($, 'context', '')}>
-              <Text backgroundColor={HEAD_BG}>{' Context '}</Text>
+              <Text backgroundColor={CHIP_BLUE}><Text color={BLUE}>{' ◔ '}</Text>{'Context '}</Text>
             </Button>
             <Button
               key="act-copydir"
@@ -2974,14 +2984,14 @@ export const register: Register = (on, options) => {
                 $.ui.toast(r.isCopied ? 'Folder path copied' : 'Copy failed')
               }}
             >
-              <Text backgroundColor={HEAD_BG}>{' Copy path '}</Text>
+              <Text backgroundColor={CHIP_VIOLET}><Text color={VIOLET}>{' ⧉ '}</Text>{'Copy path '}</Text>
             </Button>
             <Button key="act-paste" plain onPress={() => void pasteImage($)}>
-              <Text backgroundColor={HEAD_BG}>{' Paste image '}</Text>
+              <Text backgroundColor={CHIP_GREEN}><Text color={GREEN}>{' ⇓ '}</Text>{'Paste image '}</Text>
             </Button>
             {term === 'pending' && (
               <Button key="act-term" plain onPress={async () => $.ui.toast(await applyTerminalLook($))}>
-                <Text backgroundColor={HEAD_BG} color={ACCENT}>{' Terminal look '}</Text>
+                <Text backgroundColor={CHIP_ORANGE} color={ACCENT}>{' ◆ Terminal look '}</Text>
               </Button>
             )}
           </Box>,
