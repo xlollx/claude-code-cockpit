@@ -39,6 +39,20 @@ The panel opens by itself in new sessions (turn that off with `openOnStart`). No
 
 **Windows Terminal**: the first time, the mod offers the recommended terminal look (a toast and an orange `Terminal look` button in Quick actions, or `/cockpit-setup`). One press backs up Windows Terminal's `settings.json` and sets, on the profile Claude Code runs in, the "Ember Dark" colour scheme (`#1E1E1E` background), real bold text (`intenseTextStyle: "all"`, without which headings and inline code do not look bold) and a little padding. The mod never changes the terminal without that press; to undo, copy the backup over `settings.json`. In other terminals pick a dark background close to `#1E1E1E` (the colours are in `extras/`).
 
+## Update
+
+- **Installed from the marketplace**: `/plugin update cockpit@claude-code-cockpit` (or `claude plugin update cockpit@claude-code-cockpit` from a shell), then restart Claude Code.
+- **Loaded from a clone** (`CLAUDE_CODE_PLUGIN_DIRS` or `--plugin-dir`): `git -C <folder> pull --ff-only`; open sessions pick the new version up at the end of their next turn, no restart needed.
+
+**`cockpit-update`** does whichever applies, from PowerShell: it finds the clone through `CLAUDE_CODE_PLUGIN_DIRS` in Claude Code's `settings.json`, otherwise it updates the marketplace install. Load it from your profile:
+
+```powershell
+# in $PROFILE (notepad $PROFILE)
+. "<folder of the clone>\extras\cockpit-update.ps1"
+```
+
+Without a clone, copy the function from [`extras/cockpit-update.ps1`](extras/cockpit-update.ps1) into `$PROFILE`.
+
 ## Uninstall
 
 One command puts everything back as it was before the mod:
