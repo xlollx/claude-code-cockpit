@@ -2926,25 +2926,29 @@ export const register: Register = (on, options) => {
 
         {section('btw', 'Aside', ACCENT, undefined,
           <Box flexDirection="column">
-            <Input
-              key="aside-input"
-              placeholder={narrow ? 'side question… (Enter)' : 'side question, Enter (not added to the chat)'}
-              value=""
-              submitLabel="ask"
-              onSubmit={q => void (async () => {
-                void askAside($, q)
-                await giveKeysBack($)
-              })()}
-            />
+            {/* a framed field, so it reads as a place to type and click */}
+            <Box borderStyle="round" borderColor={BLUE} paddingX={1} flexDirection="row">
+              <Text color={BLUE}>{'? '}</Text>
+              <Input
+                key="aside-input"
+                placeholder={narrow ? 'ask aside…' : 'click here and ask a side question…'}
+                value=""
+                submitLabel="ask"
+                onSubmit={q => void (async () => {
+                  void askAside($, q)
+                  await giveKeysBack($)
+                })()}
+              />
+            </Box>
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {
-                return <Text dimColor>like /btw: answered with the conversation in mind, kept out of it</Text>
+                return <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: answered with the chat in mind, not added to it'}</Text>
               }
               return (
                 <Box flexDirection="column">
                   {/* the answer in a box of its own, a small window beside the chat */}
-                  <Box flexDirection="column" borderStyle="round" borderColor={cur.state === 'error' ? PROD : TURN_RULE} paddingX={1} marginTop={1}>
+                  <Box flexDirection="column" borderStyle="round" borderColor={cur.state === 'error' ? PROD : TURN_RULE} paddingX={1}>
                     <Text>
                       <Text color={BLUE}>you </Text>
                       <Text dimColor>{cur.q}</Text>
@@ -2993,13 +2997,16 @@ export const register: Register = (on, options) => {
 
         {section('search', 'Search', ACCENT, found?.total,
           <Box flexDirection="column">
-            <Input
-              key="search-input"
-              placeholder={narrow ? 'find… (Enter)' : 'text to find, Enter (Esc to leave)'}
-              value={found?.query ?? ''}
-              submitLabel="search"
-              onSubmit={q => void runSearch($, q)}
-            />
+            <Box borderStyle="round" borderColor={TURN_RULE} paddingX={1} flexDirection="row">
+              <Text color={ACCENT}>{'⌕ '}</Text>
+              <Input
+                key="search-input"
+                placeholder={narrow ? 'find…' : 'click here and type text to find…'}
+                value={found?.query ?? ''}
+                submitLabel="search"
+                onSubmit={q => void runSearch($, q)}
+              />
+            </Box>
             {found !== null && found.total === 0 && <Text dimColor>no match for "{cut(found.query, cols - 16)}"</Text>}
             {found !== null && found.total > 0 && (
               <Box flexDirection="column">
