@@ -1215,7 +1215,9 @@ async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
     text:
       `${HANDOVER_TAG} This session is getting long. Write a handover note to ${path} (create the folder if needed) ` +
       'so that a fresh Claude session, which has none of this conversation, can pick up the work. Use the Write tool ' +
-      'and do nothing else in this turn. Keep it self-contained and concise, in the language we have been using, with ' +
+      'and do nothing else in this turn. Its first line is "# " and a title of 3 to 6 words naming the work (not the ' +
+      'word handover): it becomes the name of the session that resumes from it. ' +
+      'Keep it self-contained and concise, in the language we have been using, with ' +
       'these sections: Goal, Context (repo, folders, environment, tenant or subscription if any), Done so far (paths, ' +
       'commits, PR and work item ids), Current state (what works, what is half done, uncommitted changes), Next steps ' +
       '(ordered and concrete), Decisions and constraints given by the user, Gotchas learned, Key files and commands. ' +
@@ -1226,6 +1228,19 @@ async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
 const resumePrompt = (path: string) =>
   `Read the handover note at ${path} and continue the work from there. ` +
   'First give me a short summary of where we are and the next step, then wait for my go.'
+const RESUME_RX = /^Read the handover note at (.+?\.md) and continue the work from there\./
+
+// the session resumed from a note (after /clear, or in a new tab) would be named "Claude Code":
+// it takes the title on the note's first line
+async function handoverTitle($: EngineInterface, prompt: string) {
+  const path = RESUME_RX.exec(prompt)?.[1]
+  if (path === undefined) {
+    return undefined
+  }
+  const first = ((await readText($, path)) ?? '').split(/\r?\n/, 1)[0] ?? ''
+  const t = first.replace(/^#+\s*/, '').trim()
+  return first.startsWith('#') && t !== '' ? t.slice(0, 60) : undefined
+}
 
 async function finishHandover($: EngineInterface, h: HandoverJob) {
   const text = resumePrompt(h.path)
@@ -2236,6 +2251,12 @@ async function restoreSaved($: EngineInterface) {
 
 export const register: Register = (on, options) => {
   applyOptions(options)
+
+  on('classic.UserPromptSubmit', async ($, e, next) => {
+    const r = await next(e)
+    const title = await handoverTitle($, e.prompt).catch(() => undefined)
+    return title === undefined ? r : { ...r, sessionTitle: title }
+  })
 
   on('session.end', async ($, e, next) => {
     const r = await next(e)
