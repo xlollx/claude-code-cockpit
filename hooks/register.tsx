@@ -1228,26 +1228,22 @@ async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
 const resumePrompt = (path: string) =>
   `Read the handover note at ${path} and continue the work from there. ` +
   'First give me a short summary of where we are and the next step, then wait for my go.'
-const RESUME_RX = /^Read the handover note at (.+?\.md) and continue the work from there\./
-
 // the session resumed from a note (after /clear, or in a new tab) would be named "Claude Code":
-// it takes the title on the note's first line
-async function handoverTitle($: EngineInterface, prompt: string) {
-  const path = RESUME_RX.exec(prompt)?.[1]
-  if (path === undefined) {
-    return undefined
-  }
-  const first = ((await readText($, path)) ?? '').split(/\r?\n/, 1)[0] ?? ''
-  const t = first.replace(/^#+\s*/, '').trim()
+// it takes the title on the note's first line, through /rename or `claude --name` (a
+// classic.UserPromptSubmit sessionTitle is lost when another plugin's hook runs first)
+async function noteTitle($: EngineInterface, path: string) {
+  const first = ((await readText($, path).catch(() => undefined)) ?? '').split(/\r?\n/, 1)[0] ?? ''
+  const t = first.replace(/^#+\s*/, '').replace(/["\r\n]/g, '').trim()
   return first.startsWith('#') && t !== '' ? t.slice(0, 60) : undefined
 }
 
 async function finishHandover($: EngineInterface, h: HandoverJob) {
   const text = resumePrompt(h.path)
-  await hoLog($, `finish mode=${h.mode}`)
+  const title = await noteTitle($, h.path)
+  await hoLog($, `finish mode=${h.mode} title=${title ?? '-'}`)
   if (h.mode === 'tab') {
     await update($, handoverA, () => 'idle')
-    await openHandoverTab($, h.cwd, text)
+    await openHandoverTab($, h.cwd, text, title)
     return
   }
   await update($, handoverA, () => 'clearing')
@@ -1262,6 +1258,14 @@ async function finishHandover($: EngineInterface, h: HandoverJob) {
     return
   }
   await $.clock.sleep(800)
+  if (title !== undefined) {
+    try {
+      const r = await $.command.run({ command: 'rename', args: title })
+      await hoLog($, `rename ran: ${JSON.stringify(r).slice(0, 200)}`)
+    } catch (err) {
+      await hoLog($, `rename failed: ${String(err).slice(0, 200)}`)
+    }
+  }
   try {
     await $.prompt.submit({ text, asUser: true })
     await hoLog($, 'resume prompt submitted')
@@ -1275,10 +1279,11 @@ async function finishHandover($: EngineInterface, h: HandoverJob) {
 // A new tab of the Windows Terminal this session runs in, same folder, Claude started with
 // the resume prompt (Windows Terminal builds a fresh environment for it); elsewhere the
 // command is copied to paste into a new terminal
-async function openHandoverTab($: EngineInterface, cwd: string, text: string) {
+async function openHandoverTab($: EngineInterface, cwd: string, text: string, title?: string) {
+  const name = title === undefined ? [] : ['--name', title]
   if ((await platform($)) === 'windows' && (await $.env.get('WT_SESSION')) !== undefined) {
     try {
-      const r = await run($, ['wt', '-w', '0', 'new-tab', '-d', cwd, 'claude', text], { timeoutMs: 15_000 })
+      const r = await run($, ['wt', '-w', '0', 'new-tab', '-d', cwd, 'claude', ...name, text], { timeoutMs: 15_000 })
       if (r.exitCode === 0) {
         $.ui.toast('Handover written: new session opened in a new tab')
         return
@@ -1287,7 +1292,7 @@ async function openHandoverTab($: EngineInterface, cwd: string, text: string) {
       // falls back to the clipboard
     }
   }
-  const cmd = `cd "${cwd}" && claude "${text}"`
+  const cmd = `cd "${cwd}" && claude ${title === undefined ? '' : `--name "${title}" `}"${text}"`
   const r = await $.ui.copy({ text: cmd })
   $.ui.toast(r.isCopied ? 'Handover written: command copied, paste it into a new terminal' : `Handover written: run ${cmd}`)
 }
@@ -2251,12 +2256,6 @@ async function restoreSaved($: EngineInterface) {
 
 export const register: Register = (on, options) => {
   applyOptions(options)
-
-  on('classic.UserPromptSubmit', async ($, e, next) => {
-    const r = await next(e)
-    const title = await handoverTitle($, e.prompt).catch(() => undefined)
-    return title === undefined ? r : { ...r, sessionTitle: title }
-  })
 
   on('session.end', async ($, e, next) => {
     const r = await next(e)
