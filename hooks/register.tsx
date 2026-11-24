@@ -1201,7 +1201,9 @@ async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
   const cwd = await $.session.cwd()
   const cfg = ((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await home($)}/.claude`).replace(/\\/g, '/')
   const folder = (cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? 'session').replace(/[^\w.-]+/g, '-').slice(0, 40)
-  const stamp = localStamp(await $.clock.now()).replace(/[-:]/g, '').replace('T', '-')
+  // to the second: two handovers in the same minute must not share a note
+  const now = await $.clock.now()
+  const stamp = `${localStamp(now).replace(/[-:]/g, '').replace('T', '-')}${String(new Date(now).getSeconds()).padStart(2, '0')}`
   let path = `${cfg}/handovers/${stamp}-${folder}.md`
   if (win) {
     path = path.replace(/\//g, '\\')
@@ -2224,8 +2226,30 @@ async function registerCommands($: EngineInterface) {
   })
 }
 
+// panel choices kept in $.store, back into the session's state: at the start, and after a
+// /clear, which starts a fresh session state without any session.start
+async function restoreSaved($: EngineInterface) {
+  await update($, compactA, () => COMPACT)
+  const savedCollapsed = (await $.store.get('collapsed')) as string[] | undefined
+  await update($, collapsed, () => (Array.isArray(savedCollapsed) ? savedCollapsed : []))
+}
+
 export const register: Register = (on, options) => {
   applyOptions(options)
+
+  on('session.end', async ($, e, next) => {
+    const r = await next(e)
+    if (e.reason === 'clear') {
+      $.clock.after(300, () =>
+        void (async () => {
+          const isOn = (await $.store.get('enabled')) !== false
+          await update($, enabled, () => isOn)
+          await restoreSaved($)
+        })().catch(() => undefined),
+      )
+    }
+    return r
+  })
 
   on('session.start', async ($, e, next) => {
     // open the panel first, before any file, process or network read: it draws at once and
@@ -2239,9 +2263,7 @@ export const register: Register = (on, options) => {
     await update($, enabled, () => isOn)
     const initial = await effortFromSettings($)
     await update($, effort, cur => cur ?? initial)
-    await update($, compactA, () => COMPACT)
-    const savedCollapsed = (await $.store.get('collapsed')) as string[] | undefined
-    await update($, collapsed, () => (Array.isArray(savedCollapsed) ? savedCollapsed : []))
+    await restoreSaved($)
     await loadModels($)
     CC_VERSION = (await $.session.version()).version
     const ran = await next(e)
