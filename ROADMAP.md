@@ -52,6 +52,6 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 - [x] `Paste image` quick action (Windows tested; macOS/Linux to be tested).
 - [x] `Handover` quick action: hand-off note, then `/clear` and resume here, or a new session in a new tab.
 - [x] Handover to OpenCode or Antigravity, and delegation of tasks to them (read-only, or write mode in a worktree; model by name).
-- [x] `+ add` in Reminders and Active modes; `other…` installs a missing skill after confirmation; `+ new session` in Sessions.
+- [x] `+ add` in Reminders and Active modes; `other…` installs a missing skill after confirmation; `+ new session here` in Sessions.
 - [x] `Copy selection`: the mouse selection copied with the formatting of its message.
 - [x] Docs: CONTRIBUTING, architecture decision records, guides for the accessory tools.

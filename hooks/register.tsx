@@ -4161,7 +4161,7 @@ export const register: Register = (on, options) => {
         {section('sessioni', 'Sessions', BLUE, others.length,
             <Box flexDirection="column">
               <Button key="peer-new" plain onPress={() => void newSession($)}>
-                <Text color={BLUE}>{' + new session '}</Text>
+                <Text color={BLUE}>{' + new session here '}</Text>
               </Button>
               {others.map(x => (
                 <Button
