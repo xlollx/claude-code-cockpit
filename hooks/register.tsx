@@ -1156,11 +1156,43 @@ async function sendToPeer($: EngineInterface, sessionId: string, name: string, t
 // /clear and resumes from the note, or a new Windows Terminal tab in the same folder starts
 // from it. The note lives in <config dir>/handovers, never inside the repo
 const HANDOVER_TAG = '[cockpit handover]'
-let HANDOVER: { mode: 'here' | 'tab'; path: string; cwd: string; started: boolean } | null = null
+type HandoverJob = { mode: 'here' | 'tab'; path: string; cwd: string; at: number; started: boolean }
+
+// the running job lives in $.store, so a reload of the mod between the press and the end of
+// the writing turn does not lose it
+async function getJob($: EngineInterface): Promise<HandoverJob | null> {
+  const j = (await $.store.get('handoverJob')) as HandoverJob | null | undefined
+  return j !== undefined && j !== null && typeof j.path === 'string' ? j : null
+}
+
+async function setJob($: EngineInterface, j: HandoverJob | null) {
+  await $.store.set('handoverJob', j)
+}
+
+// steps of the handover in %TEMP%\claude-cockpit\handover.log (Windows), to see where it stops
+async function hoLog($: EngineInterface, line: string) {
+  try {
+    if ((await platform($)) !== 'windows') {
+      return
+    }
+    const tmp = (await $.env.get('TEMP')) ?? `${await home($)}/AppData/Local/Temp`
+    const f = `${tmp}\\claude-cockpit\\handover.log`
+    const old = (await readText($, f)) ?? ''
+    await $.fs.write(f, `${old.split('\n').slice(-200).join('\n')}${localStamp(await $.clock.now())} ${line}\n`)
+  } catch {
+    // the log is a help, never a reason to fail
+  }
+}
+
+async function cancelHandover($: EngineInterface) {
+  await setJob($, null)
+  await update($, handoverA, () => 'idle')
+  await hoLog($, 'cancelled from the panel')
+}
 
 async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
-  if (HANDOVER !== null) {
-    $.ui.toast('A handover is already running')
+  if ((await getJob($)) !== null) {
+    $.ui.toast('A handover is already running: press it in the panel to cancel')
     return
   }
   const win = (await platform($)) === 'windows'
@@ -1172,8 +1204,9 @@ async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
   if (win) {
     path = path.replace(/\//g, '\\')
   }
-  HANDOVER = { mode, path, cwd, started: false }
+  await setJob($, { mode, path, cwd, at: await $.clock.now(), started: false })
   await update($, handoverA, () => 'writing')
+  await hoLog($, `start mode=${mode} path=${path}`)
   await $.prompt.submit({
     text:
       `${HANDOVER_TAG} This session is getting long. Write a handover note to ${path} (create the folder if needed) ` +
@@ -1190,8 +1223,9 @@ const resumePrompt = (path: string) =>
   `Read the handover note at ${path} and continue the work from there. ` +
   'First give me a short summary of where we are and the next step, then wait for my go.'
 
-async function finishHandover($: EngineInterface, h: { mode: 'here' | 'tab'; path: string; cwd: string }) {
+async function finishHandover($: EngineInterface, h: HandoverJob) {
   const text = resumePrompt(h.path)
+  await hoLog($, `finish mode=${h.mode}`)
   if (h.mode === 'tab') {
     await update($, handoverA, () => 'idle')
     await openHandoverTab($, h.cwd, text)
@@ -1199,15 +1233,23 @@ async function finishHandover($: EngineInterface, h: { mode: 'here' | 'tab'; pat
   }
   await update($, handoverA, () => 'clearing')
   try {
-    await $.command.run({ command: 'clear' })
+    const r = await $.command.run({ command: 'clear' })
+    await hoLog($, `clear ran: ${JSON.stringify(r).slice(0, 200)}`)
   } catch (err) {
+    await hoLog($, `clear failed: ${String(err).slice(0, 200)}`)
     await update($, handoverA, () => 'idle')
     await $.prompt.fill({ text })
     $.ui.toast(`/clear did not run (${String(err).slice(0, 80)}): run it, then send the prompt left in the box`)
     return
   }
   await $.clock.sleep(800)
-  await $.prompt.submit({ text, asUser: true })
+  try {
+    await $.prompt.submit({ text, asUser: true })
+    await hoLog($, 'resume prompt submitted')
+  } catch (err) {
+    await hoLog($, `resume submit failed: ${String(err).slice(0, 200)}`)
+    await $.prompt.fill({ text })
+  }
   await update($, handoverA, () => 'idle').catch(() => undefined)
 }
 
@@ -2263,8 +2305,12 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     // the turn that writes the handover note is the one this mod submitted, not a turn
     // already running when the button was pressed
-    if (HANDOVER !== null && !HANDOVER.started && e.origin?.kind === 'plugin' && e.text.includes(HANDOVER_TAG)) {
-      HANDOVER.started = true
+    if (e.text.includes(HANDOVER_TAG)) {
+      const job = await getJob($)
+      await hoLog($, `prompt.submit seen origin=${e.origin?.kind} job=${job !== null}`)
+      if (job !== null && !job.started) {
+        await setJob($, { ...job, started: true })
+      }
     }
     if (!COMMANDS_DONE) {
       await registerCommands($).catch(() => undefined)
@@ -2307,16 +2353,29 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
-    if (e.agentId === undefined && HANDOVER?.started === true) {
-      const h = HANDOVER
-      HANDOVER = null
-      if (e.reason !== 'answer' || !(await $.fs.exists(h.path))) {
-        await update($, handoverA, () => 'idle')
-        $.ui.toast(e.reason === 'answer' ? `Handover note not found at ${h.path}` : 'Handover stopped')
-      } else {
-        // after the turn has ended, so /clear does not run inside it
-        $.clock.after(400, () => void finishHandover($, h))
-      }
+    if (e.agentId !== undefined) {
+      return r
+    }
+    const h = await getJob($)
+    if (h === null) {
+      return r
+    }
+    // the note written after the press: the writing turn is over, whatever the prompt hook saw
+    let fresh = false
+    try {
+      fresh = (await $.fs.stat(h.path)).mtimeMs >= h.at - 5000
+    } catch {
+      // not written (yet)
+    }
+    await hoLog($, `turn.complete reason=${e.reason} started=${h.started} fresh=${fresh}`)
+    if (fresh) {
+      await setJob($, null)
+      // after the turn has ended, so /clear does not run inside it
+      $.clock.after(400, () => void finishHandover($, h))
+    } else if (h.started) {
+      await setJob($, null)
+      await update($, handoverA, () => 'idle')
+      $.ui.toast(e.reason === 'answer' ? `Handover note not found at ${h.path}` : 'Handover stopped')
     }
     return r
   })
@@ -3269,9 +3328,11 @@ export const register: Register = (on, options) => {
               </Box>
             )}
             {(handover === 'writing' || handover === 'clearing') && (
-              <Text key="act-handover-run" backgroundColor={CHIP_BLUE} color={BLUE}>
-                {handover === 'writing' ? ' ⇄ Writing handover… ' : ' ⇄ Clearing and resuming… '}
-              </Text>
+              <Button key="act-handover-run" plain onPress={() => void cancelHandover($)}>
+                <Text backgroundColor={CHIP_BLUE} color={BLUE}>
+                  {handover === 'writing' ? ' ⇄ Writing handover… ✕ ' : ' ⇄ Clearing and resuming… ✕ '}
+                </Text>
+              </Button>
             )}
             {term === 'pending' && (
               <Button key="act-term" plain onPress={async () => $.ui.toast(await applyTerminalLook($))}>
