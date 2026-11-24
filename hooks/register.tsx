@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ProcessRunInit, Register, RenderElement, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { Aside, FileEdit, HandoverPhase, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
+import type { AgentId, Aside, DelegateJob, FileEdit, HandoverPhase, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
@@ -41,6 +41,9 @@ const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as str
 const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 const handoverA = atom({ plugin: 'cockpit', key: 'handover' } as const, 'idle' as HandoverPhase, { shape: 'handover-1' })
+const agentsA = atom({ plugin: 'cockpit', key: 'agents' } as const, [] as AgentId[], { shape: 'agents-1' })
+const delegateAuto = atom({ plugin: 'cockpit', key: 'delegateAuto' } as const, [] as AgentId[], { shape: 'delegateAuto-1' })
+const delegations = atom({ plugin: 'cockpit', key: 'delegations' } as const, [] as DelegateJob[], { shape: 'delegations-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -889,7 +892,7 @@ const PALETTES = {
 // option name of a section -> id used for its folded state
 const SECTION_IDS: Record<string, string> = {
   btw: 'btw', aside: 'btw', search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
-  actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file', sessions: 'sessioni',
+  actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file', sessions: 'sessioni', delegation: 'delega',
 }
 let HIDDEN = new Set<string>()
 let CC_VERSION = ''
@@ -1158,7 +1161,8 @@ async function sendToPeer($: EngineInterface, sessionId: string, name: string, t
 const HANDOVER_TAG = '[cockpit handover]'
 // turnId: the turn that writes the note, set by turn.start (prompt.submit does not hear the
 // prompts this mod submits)
-type HandoverJob = { mode: 'here' | 'tab'; path: string; cwd: string; at: number; turnId?: string }
+// mode: here (/clear and resume), tab (new Claude session), or another agent in a new tab
+type HandoverJob = { mode: 'here' | 'tab' | AgentId; path: string; cwd: string; at: number; turnId?: string }
 
 // the running job lives in $.store, so a reload of the mod between the press and the end of
 // the writing turn does not lose it
@@ -1192,7 +1196,7 @@ async function cancelHandover($: EngineInterface) {
   await hoLog($, 'cancelled from the panel')
 }
 
-async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
+async function startHandover($: EngineInterface, mode: HandoverJob['mode']) {
   if ((await getJob($)) !== null) {
     $.ui.toast('A handover is already running: press it in the panel to cancel')
     return
@@ -1211,10 +1215,16 @@ async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
   await setJob($, { mode, path, cwd, at: await $.clock.now() })
   await update($, handoverA, () => 'writing')
   await hoLog($, `start mode=${mode} path=${path}`)
+  const other = AGENTS[mode as AgentId]
+  const reader =
+    other === undefined
+      ? 'a fresh Claude session, which has none of this conversation,'
+      : `another coding agent (${other.label}), which has none of this conversation and none of Claude's own tools ` +
+        '(no subagents, skills, model tiers or slash commands: name plain files and commands instead),'
   await $.prompt.submit({
     text:
       `${HANDOVER_TAG} This session is getting long. Write a handover note to ${path} (create the folder if needed) ` +
-      'so that a fresh Claude session, which has none of this conversation, can pick up the work. Use the Write tool ' +
+      `so that ${reader} can pick up the work. Use the Write tool ` +
       'and do nothing else in this turn. Its first line is "# " and a title of 3 to 6 words naming the work (not the ' +
       'word handover): it becomes the name of the session that resumes from it. ' +
       'Keep it self-contained and concise, in the language we have been using, with ' +
@@ -1244,6 +1254,11 @@ async function finishHandover($: EngineInterface, h: HandoverJob) {
   if (h.mode === 'tab') {
     await update($, handoverA, () => 'idle')
     await openHandoverTab($, h.cwd, text, title)
+    return
+  }
+  if (h.mode !== 'here') {
+    await update($, handoverA, () => 'idle')
+    await openAgentTab($, h.mode, h.cwd, h.path, title)
     return
   }
   await update($, handoverA, () => 'clearing')
@@ -1295,6 +1310,566 @@ async function openHandoverTab($: EngineInterface, cwd: string, text: string, ti
   const cmd = `cd "${cwd}" && claude ${title === undefined ? '' : `--name "${title}" `}"${text}"`
   const r = await $.ui.copy({ text: cmd })
   $.ui.toast(r.isCopied ? 'Handover written: command copied, paste it into a new terminal' : `Handover written: run ${cmd}`)
+}
+
+// Other coding agents found in PATH: a handover can continue in one of them (new tab), and
+// Claude can delegate read-only tasks to them (the delegate tool below)
+const AGENTS: Record<AgentId, { label: string; bin: string }> = {
+  opencode: { label: 'OpenCode', bin: 'opencode' },
+  antigravity: { label: 'Antigravity', bin: 'agy' },
+}
+const AGENT_IDS = Object.keys(AGENTS) as AgentId[]
+
+// The agent's executable. On Windows an npm shim (.cmd) is read for the real .exe it starts,
+// so the agent runs in the session's folder with its arguments untouched by cmd.exe
+async function agentExe($: EngineInterface, id: AgentId): Promise<string | undefined> {
+  const name = AGENTS[id].bin
+  if ((await platform($)) !== 'windows') {
+    try {
+      const r = await $.process.run(['which', name], { timeoutMs: 3000 })
+      return r.exitCode === 0 && r.stdout.trim() !== '' ? r.stdout.trim().split('\n')[0] : undefined
+    } catch {
+      return undefined
+    }
+  }
+  let exe: string
+  try {
+    exe = await bin($, name)
+  } catch {
+    return undefined
+  }
+  if (!/\.(cmd|bat)$/i.test(exe)) {
+    return exe
+  }
+  const dir = exe.slice(0, exe.lastIndexOf('\\'))
+  const m = /"%dp0%\\([^"]+\.exe)"/i.exec((await readText($, exe)) ?? '')
+  const real = m?.[1] === undefined ? undefined : `${dir}\\${m[1]}`
+  return real !== undefined && (await $.fs.exists(real)) ? real : exe
+}
+
+// argv for a .cmd that could not be resolved: through cmd.exe by its full path
+async function agentArgv($: EngineInterface, exe: string, args: string[]) {
+  if (!/\.(cmd|bat)$/i.test(exe)) {
+    return [exe, ...args]
+  }
+  const root = (await $.env.get('SystemRoot')) ?? 'C:\\Windows'
+  return [`${root}\\System32\\cmd.exe`, '/d', '/c', exe, ...args]
+}
+
+async function detectAgents($: EngineInterface) {
+  const found: AgentId[] = []
+  for (const id of AGENT_IDS) {
+    if ((await agentExe($, id)) !== undefined) {
+      found.push(id)
+    }
+  }
+  await update($, agentsA, () => found)
+  if (found.length > 0) {
+    // rejects until the session binds: tried again after session.start
+    await registerDelegate($, found).catch(() => undefined)
+  }
+  return found
+}
+
+// Handover to another agent: a new Windows Terminal tab in the same folder, the agent started
+// with the resume prompt; elsewhere (or if wt fails) the command is copied
+async function openAgentTab($: EngineInterface, id: AgentId, cwd: string, path: string, title?: string) {
+  const text =
+    `Read the handover note at ${path} and continue the work from there. ` +
+    'First give me a short summary of where we are and the next step, then wait for my go.'
+  const notes = path.slice(0, Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/')))
+  // agy works inside its workspace folders: the notes folder is added to it
+  const args = id === 'opencode' ? ['--prompt', text, cwd] : ['--add-dir', notes, '-i', text]
+  const exe = (await agentExe($, id)) ?? AGENTS[id].bin
+  const label = AGENTS[id].label
+  if ((await platform($)) === 'windows' && (await $.env.get('WT_SESSION')) !== undefined) {
+    try {
+      const tab = title === undefined ? [] : ['--title', title]
+      const r = await run($, ['wt', '-w', '0', 'new-tab', ...tab, '-d', cwd, ...(await agentArgv($, exe, args))], { timeoutMs: 15_000 })
+      if (r.exitCode === 0) {
+        $.ui.toast(`Handover written: ${label} opened in a new tab`)
+        return
+      }
+    } catch {
+      // falls back to the clipboard
+    }
+  }
+  const q = (s: string) => `"${s.replace(/"/g, '\\"')}"`
+  const cmd = `cd ${q(cwd)} && ${AGENTS[id].bin} ${args.map(q).join(' ')}`
+  const r = await $.ui.copy({ text: cmd })
+  $.ui.toast(r.isCopied ? `Handover written: ${label} command copied, paste it into a new terminal` : `Handover written: run ${cmd}`)
+}
+
+// ── Delegation ──────────────────────────────────────────────────────────────────────────
+// Claude hands a self-contained, read-only task (search, read, summarize) to another agent
+// through the tool mcp__cockpit__delegate. The agent runs headless in plan mode, its answer
+// lands in <config dir>/delegations/<stamp>-<agent>.md, and Claude is told when it is ready.
+// The panel's Delegation section says which agents Claude may use on its own for easy tasks;
+// asked by the person, any installed agent can be used.
+const DELEGATE_TAG = '[cockpit delegate]'
+const DELEGATE_MAX_MS = 20 * 60_000
+
+const DELEGATE_PREAMBLE_WRITE =
+  'You are helping another coding agent that delegated this task to you. You work in a scratch copy of ' +
+  'the project (a separate git worktree or an empty output folder): create and edit files ONLY inside your ' +
+  'working folder, never anywhere else. Never commit, push, deploy, or run commands that change anything ' +
+  'outside it (cloud, clusters, repos, tickets). The other agent reviews your changes before using them. ' +
+  'At the end answer in Markdown: the files you changed or created, why, and what you could not verify.\n\nTask:\n'
+
+const DELEGATE_PREAMBLE =
+  'You are helping another coding agent that delegated this task to you. Work READ-ONLY: never create, ' +
+  'edit or delete files, never run shell commands, never call tools that change anything (cloud, ' +
+  'clusters, repos, tickets). Use only your file read and search tools. Answer in Markdown, concise ' +
+  'and structured, with file:line references for every claim about code, and say plainly what you ' +
+  'could not verify. Your answer is read by the other agent, not by a person.\n\nTask:\n'
+
+async function saveAuto($: EngineInterface, list: AgentId[]) {
+  await update($, delegateAuto, () => list)
+  await $.store.set('delegateAuto', list)
+}
+
+async function restoreAuto($: EngineInterface) {
+  const saved = (await $.store.get('delegateAuto')) as AgentId[] | undefined
+  await update($, delegateAuto, () => (Array.isArray(saved) ? saved.filter(x => AGENT_IDS.includes(x)) : []))
+}
+
+const autoLine = (installed: AgentId[], auto: AgentId[]) =>
+  installed.map(id => `${AGENTS[id].label} (${id}): ${auto.includes(id) ? 'ON' : 'off'}`).join(', ')
+
+// what Claude is told about delegation: once at the start of a conversation (and after /clear
+// or a compaction), then again whenever a toggle changes
+function delegateBrief(installed: AgentId[], auto: AgentId[]) {
+  const on = auto.filter(x => installed.includes(x))
+  return (
+    `Delegation (cockpit mod): other coding agents installed here: ${autoLine(installed, auto)}. ` +
+    'Use the tool mcp__cockpit__delegate. ' +
+    (on.length > 0
+      ? `On your own, delegate only easy, bulky READ-ONLY work (searching or reading many files or logs, summarizing docs) to: ${on.map(x => AGENTS[x].label).join(', ')}. `
+      : 'Do not delegate on your own; only when the person asks. ') +
+    'When the person explicitly asks to delegate a task to one of them, do it even if it is off, hard tasks included, ' +
+    'with the model they name (model parameter) and mode "write" when the task changes files: it then works in a ' +
+    'separate git worktree (or an empty output folder) and you MUST review the whole diff before applying anything, ' +
+    'as the result file explains. Never delegate decisions, commits, pushes, deployments or infrastructure changes. ' +
+    'They send what they read to their own model providers: never give them secrets, tokens, personal or ' +
+    'customer data. Their answers are a lower tier: verify before relying on them. With wait=false the tool ' +
+    'returns at once and a message tells you when the result file is ready; meanwhile go on with other work.'
+  )
+}
+
+// at the start of a conversation and after /clear (a prompt.context block would be cleaner, but
+// another plugin's hook skips it): one note the model reads with its next request
+async function briefClaude($: EngineInterface) {
+  const installed = await read($, agentsA)
+  if (installed.length === 0) {
+    return
+  }
+  await $.session
+    .append({ message: { type: 'user', content: [{ type: 'text', text: `${DELEGATE_TAG} ${delegateBrief(installed, await read($, delegateAuto))}` }] } })
+    .catch(() => undefined)
+}
+
+async function toggleAuto($: EngineInterface, id: AgentId) {
+  const cur = await read($, delegateAuto)
+  const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
+  await saveAuto($, next)
+  // the change reaches Claude with its next request
+  await $.session
+    .append({ message: { type: 'user', content: [{ type: 'text', text: `${DELEGATE_TAG} Settings changed. ${delegateBrief(await read($, agentsA), next)}` }] } })
+    .catch(() => undefined)
+}
+
+let DELEGATE_REGISTERED = false
+async function registerDelegate($: EngineInterface, installed: AgentId[]) {
+  if (DELEGATE_REGISTERED) {
+    return
+  }
+  await $.tool.register({
+    name: 'delegate',
+    isDeferred: false,
+    description:
+      'Delegate a self-contained READ-ONLY task (search, read, summarize, second opinion) to another coding agent ' +
+      `installed on this machine (${installed.map(x => `${x} = ${AGENTS[x].label}`).join(', ')}), to save context. ` +
+      'It runs headless in plan mode in the given folder; its Markdown answer is written to a file whose path is ' +
+      'returned. wait=false (default): returns at once, you are told when it is done. wait=true: waits (up to 10 ' +
+      'minutes) and returns the answer. Give the full context in the task: it knows nothing of this conversation. ' +
+      'mode "write" (only when the person asked for it): the agent may edit files, in a separate git worktree of the ' +
+      'repository (or an empty, new output folder outside git); review its whole diff before applying it. ' +
+      'model: the agent\'s model as the person named it (e.g. "deepseek v4.1"); an ambiguous name returns the ' +
+      'candidates to choose from. Never pass secrets or personal data. Verify the answer before relying on it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', enum: installed, description: 'Which agent' },
+        task: { type: 'string', description: 'The task, self-contained (max 20000 characters)' },
+        title: { type: 'string', description: 'A short title for the panel and the file' },
+        cwd: { type: 'string', description: 'Folder it works in (default: the session folder)' },
+        wait: { type: 'boolean', description: 'Wait for the answer (default false)' },
+        mode: { type: 'string', enum: ['read', 'write'], description: 'read (default) or write (only on the person\'s request)' },
+        model: { type: 'string', description: 'Model to use, as named by the person or an exact id (default: the agent\'s own)' },
+      },
+      required: ['to', 'task'],
+    },
+  })
+  DELEGATE_REGISTERED = true
+}
+
+// arguments of a headless, read-only run. The task is in a file: OpenCode gets it on stdin,
+// agy reads it from its workspace (the work folder is added), so no length or quoting limits
+// read: OpenCode's plan agent, agy --mode plan. write: OpenCode's build agent, agy
+// --mode accept-edits; neither auto-approves what it would have to ask (headless denies it)
+function delegateArgs(id: AgentId, taskFile: string, workDir: string, title: string, write: boolean, model?: string): string[] {
+  if (id === 'opencode') {
+    return ['run', '--agent', write ? 'build' : 'plan', '--format', 'json', '--archived', '--title', `delegate: ${title}`, ...(model !== undefined ? ['-m', model] : [])]
+  }
+  return [
+    '--mode', write ? 'accept-edits' : 'plan', '--output-format', 'json', '--add-dir', workDir,
+    ...(model !== undefined ? ['--model', model] : []),
+    `--prompt=Read the file ${taskFile} and do the task it describes: it is your whole assignment.`,
+  ]
+}
+
+// the model the person named, matched against the agent's own list: exact id, or every word of
+// the name (letters and digits only) found in one id. Several matches: the candidates go back
+const MODEL_LISTS: Partial<Record<AgentId, string[]>> = {}
+async function resolveModel($: EngineInterface, id: AgentId, exe: string, wanted: string): Promise<{ model?: string; error?: string }> {
+  let list = MODEL_LISTS[id]
+  if (list === undefined) {
+    const r = await $.process.run(await agentArgv($, exe, ['models']), { timeoutMs: 60_000 }).catch(() => undefined)
+    list = (r?.stdout ?? '')
+      .split(/\r?\n/)
+      .map(l => l.split('\t')[0]?.trim() ?? '')
+      .filter(l => l !== '' && !/\s/.test(l))
+    if (list.length > 0) {
+      MODEL_LISTS[id] = list
+    }
+  }
+  if (list.includes(wanted)) {
+    return { model: wanted }
+  }
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const words = wanted.split(/[\s/_-]+/).map(norm).filter(w => w !== '')
+  const hits = list.filter(m => words.every(w => norm(m).includes(w)))
+  if (hits.length === 1) {
+    return { model: hits[0] }
+  }
+  if (hits.length === 0) {
+    return { error: `no ${AGENTS[id].label} model matches "${wanted}" (${list.length} known; \`${AGENTS[id].bin} models\` lists them)` }
+  }
+  return { error: `"${wanted}" matches ${hits.length} ${AGENTS[id].label} models, pick one exact id: ${hits.slice(0, 15).join(', ')}` }
+}
+
+// write mode: a detached worktree of the repository at HEAD, or a new empty folder outside git
+async function writeSpace($: EngineInterface, cwd: string, wtPath: string): Promise<{ dir: string; repo?: string; head?: string; error?: string }> {
+  const top = await run($, ['git', '-C', cwd, 'rev-parse', '--show-toplevel'], { timeoutMs: 10_000 }).catch(() => undefined)
+  if (top?.exitCode === 0 && top.stdout.trim() !== '') {
+    const repo = top.stdout.trim()
+    const head = (await run($, ['git', '-C', repo, 'rev-parse', '--short', 'HEAD'], { timeoutMs: 10_000 })).stdout.trim()
+    const r = await run($, ['git', '-C', repo, 'worktree', 'add', '--detach', wtPath, 'HEAD'], { timeoutMs: 120_000 })
+    if (r.exitCode !== 0) {
+      return { dir: '', error: `git worktree add failed: ${r.stderr.trim().slice(0, 200)}` }
+    }
+    // the same subfolder of the repository the session is in
+    const sub = cwd.replace(/\\/g, '/').slice(repo.replace(/\\/g, '/').length).replace(/^\/+/, '')
+    return { dir: sub === '' ? wtPath : `${wtPath}/${sub}`, repo, head }
+  }
+  if ((await $.fs.exists(cwd)) && (await $.fs.list(cwd)).length > 0) {
+    return { dir: '', error: `${cwd} is not in a git repository and not empty: for write mode give a git repository or a new, empty output folder as cwd` }
+  }
+  await $.fs.write(`${cwd}/.delegated`, 'Output folder of a delegated task (cockpit).\n')
+  return { dir: cwd }
+}
+
+// the answer and token count out of each CLI's JSON
+function delegateAnswer(id: AgentId, out: string): { text: string; tokens?: number; error?: string } {
+  if (id === 'opencode') {
+    const texts: string[] = []
+    let tokens = 0
+    for (const line of out.split(/\r?\n/)) {
+      try {
+        const ev = JSON.parse(line) as { type?: string; part?: { type?: string; text?: string; tokens?: { input?: number; output?: number } } }
+        if (ev.type === 'text' && typeof ev.part?.text === 'string') {
+          texts.push(ev.part.text)
+        }
+        tokens += (ev.part?.tokens?.input ?? 0) + (ev.part?.tokens?.output ?? 0)
+      } catch {
+        // not a JSON line
+      }
+    }
+    // the last text part is the final answer; earlier ones are thinking out loud between tools
+    const text = texts.at(-1) ?? ''
+    return text.trim() === '' ? { text: '', error: 'no answer in the output' } : { text, tokens }
+  }
+  try {
+    const j = JSON.parse(out.trim().split(/\r?\n/).pop() ?? '') as { status?: string; response?: string; usage?: { total_tokens?: number }; denied_actions?: { display_name?: string }[] }
+    const denied = (j.denied_actions ?? []).map(d => d.display_name).join(', ')
+    if ((j.response ?? '').trim() === '') {
+      return { text: '', error: `empty answer (status ${j.status ?? '?'}${denied !== '' ? `, denied: ${denied}` : ''})` }
+    }
+    return { text: j.response ?? '', tokens: j.usage?.total_tokens }
+  } catch {
+    return { text: '', error: 'output is not JSON' }
+  }
+}
+
+const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`
+// one Windows command-line argument (CommandLineToArgvW rules)
+const winArg = (s: string) => `"${s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`
+
+async function encodedPs($: EngineInterface, script: string, timeoutMs = 20_000) {
+  let bytes = ''
+  for (let i = 0; i < script.length; i++) {
+    const c = script.charCodeAt(i)
+    bytes += String.fromCharCode(c & 255, c >> 8)
+  }
+  return run($, ['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', base64Bytes(bytes)], { timeoutMs })
+}
+
+// The agent runs DETACHED from the mod: a hot reload of the mod's code (or the end of the
+// hook) must not stop it. It writes <base>.raw/.err, its pid in <base>.pid and its exit code
+// in <base>.exit; the poller below turns them into the answer file
+async function launchDetached($: EngineInterface, argv: string[], cwd: string, base: string, stdinFile: string) {
+  const [exe = '', ...args] = argv
+  if ((await platform($)) === 'windows') {
+    const inner = [
+      `$p = Start-Process -FilePath ${psQuote(exe)} -ArgumentList ${psQuote(args.map(winArg).join(' '))} -WorkingDirectory ${psQuote(cwd)}` +
+        ` -RedirectStandardInput ${psQuote(stdinFile)} -RedirectStandardOutput ${psQuote(`${base}.raw`)} -RedirectStandardError ${psQuote(`${base}.err`)} -NoNewWindow -PassThru`,
+      '$null = $p.Handle',
+      `Set-Content -LiteralPath ${psQuote(`${base}.pid`)} -Value $p.Id`,
+      '$p.WaitForExit()',
+      `Set-Content -LiteralPath ${psQuote(`${base}.exit`)} -Value $p.ExitCode`,
+    ].join('\n')
+    let bytes = ''
+    for (let i = 0; i < inner.length; i++) {
+      const c = inner.charCodeAt(i)
+      bytes += String.fromCharCode(c & 255, c >> 8)
+    }
+    const r = await encodedPs($, `Start-Process powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','${base64Bytes(bytes)}'`)
+    if (r.exitCode !== 0) {
+      throw new Error(r.stderr.trim().slice(0, 200) || `exit ${String(r.exitCode)}`)
+    }
+    return
+  }
+  const refs = args.map((_a, i) => `"$${i + 8}"`).join(' ')
+  const r = await $.process.run(
+    ['sh', '-c', `cd "$1" || exit 1; ( "$2" ${refs} < "$3" > "$4" 2> "$5" & echo $! > "$6"; wait $!; echo $? > "$7" ) > /dev/null 2>&1 &`, 'sh',
+      cwd, exe, stdinFile, `${base}.raw`, `${base}.err`, `${base}.pid`, `${base}.exit`, ...args],
+    { timeoutMs: 10_000 },
+  )
+  if (r.exitCode !== 0) {
+    throw new Error(r.stderr.trim().slice(0, 200) || `exit ${String(r.exitCode)}`)
+  }
+}
+
+// Poller: the jobs live in the session's state (kept across hot reloads); any hook of a new
+// copy of the mod starts it again. It stops when nothing runs
+let POLLING = false
+// jobs whose wait=true call is still waiting: they get their answer there, not a message
+const WAITING = new Set<string>()
+function ensurePoller($: EngineInterface) {
+  if (POLLING) {
+    return
+  }
+  POLLING = true
+  const tick = async () => {
+    const more = await pollDelegations($).catch(() => true)
+    if (more) {
+      $.clock.after(3000, () => void tick())
+    } else {
+      POLLING = false
+    }
+  }
+  void tick()
+}
+
+async function pollDelegations($: EngineInterface): Promise<boolean> {
+  const now = await $.clock.now()
+  let running = false
+  for (const j of (await read($, delegations)).filter(x => x.state === 'run' && x.base !== undefined)) {
+    const exit = (await readText($, `${j.base}.exit`).catch(() => undefined))?.trim()
+    if (exit === undefined || exit === '') {
+      if (now - j.at > DELEGATE_MAX_MS) {
+        await killDelegate($, j)
+        await finishDelegate($, j, null, 'timed out')
+      } else {
+        running = true
+      }
+      continue
+    }
+    await finishDelegate($, j, Number(exit))
+  }
+  return running
+}
+
+async function killDelegate($: EngineInterface, j: DelegateJob) {
+  const pid = (await readText($, `${j.base}.pid`).catch(() => undefined))?.trim()
+  if (pid === undefined || !/^\d+$/.test(pid)) {
+    return
+  }
+  if ((await platform($)) === 'windows') {
+    await run($, ['taskkill', '/PID', pid, '/T', '/F'], { timeoutMs: 10_000 }).catch(() => undefined)
+  } else {
+    await $.process.run(['kill', pid], { timeoutMs: 5000 }).catch(() => undefined)
+  }
+}
+
+// the answer file, once: the job is claimed (run -> done) before anything else
+async function finishDelegate($: EngineInterface, j: DelegateJob, code: number | null, why?: string) {
+  let claimed = false
+  await update($, delegations, list =>
+    list.map(x => {
+      if (x.id === j.id && x.state === 'run') {
+        claimed = true
+        return { ...x, state: 'done' as const }
+      }
+      return x
+    }),
+  )
+  if (!claimed || j.base === undefined) {
+    return
+  }
+  const raw = (await readText($, `${j.base}.raw`).catch(() => undefined)) ?? ''
+  const err = (await readText($, `${j.base}.err`).catch(() => undefined)) ?? ''
+  const task = ((await readText($, `${j.base}.task.md`).catch(() => undefined)) ?? '').replace(DELEGATE_PREAMBLE, '').replace(DELEGATE_PREAMBLE_WRITE, '')
+  const ms = (await $.clock.now()) - j.at
+  const a =
+    why !== undefined
+      ? { text: '', error: why }
+      : code === 0
+        ? delegateAnswer(j.to, raw)
+        : { text: '', error: `exit ${String(code)}: ${err.trim().split(/\r?\n/).slice(-3).join(' | ').slice(0, 300)}` }
+  const ok = a.error === undefined
+  const label = AGENTS[j.to].label
+  const head =
+    `# ${j.title}\n\nDelegated to ${label}${j.model !== undefined ? ` (${j.model})` : ''} at ${localStamp(j.at)}, ${Math.round(ms / 1000)} s` +
+    `${a.tokens !== undefined ? `, ${a.tokens} tokens` : ''}, folder ${j.cwd ?? '?'}. ${j.write === true ? 'WRITE mode' : 'Read-only'}, not verified.\n\n`
+  const body = ok ? a.text : `**Failed:** ${a.error ?? ''}\n`
+  await $.fs.write(j.out, `${head}## Task\n\n${task.trim()}\n\n## Answer\n\n${body}\n${j.write === true ? await writeReport($, j) : ''}`)
+  await update($, delegations, list => list.map(x => (x.id === j.id ? { ...x, state: ok ? 'done' : 'error', ms, note: a.error } : x)))
+  // the work files are not needed any more
+  if ((await platform($)) === 'windows') {
+    await encodedPs($, `Remove-Item -LiteralPath ${['task.md', 'in', 'raw', 'err', 'pid', 'exit'].map(x => psQuote(`${j.base ?? ''}.${x}`)).join(',')} -Force -ErrorAction SilentlyContinue`).catch(() => undefined)
+  }
+  if (WAITING.has(j.id)) {
+    return
+  }
+  $.ui.toast(`${label}: "${j.title}" ${ok ? 'done' : 'failed'}`)
+  // wakes Claude if idle; queued behind a running turn otherwise
+  await $.prompt
+    .submit({ text: `${DELEGATE_TAG} The task "${j.title}" delegated to ${label} ${ok ? 'is done' : `failed (${a.error ?? ''})`}: read ${j.out}, verify what matters, then go on.` })
+    .catch(() => undefined)
+}
+
+// what the agent changed, and how Claude reviews and applies it
+async function writeReport($: EngineInterface, j: DelegateJob) {
+  const dir = j.cwd ?? ''
+  if (j.repo === undefined) {
+    const files = (await $.fs.list(dir).catch(() => [])).map(f => `- ${f.name}`).join('\n')
+    return `## Changes (output folder, not applied anywhere)\n\n${dir}\n\n${files || '(empty)'}\n\nReview every file before using it.\n`
+  }
+  const wt = (await run($, ['git', '-C', dir, 'rev-parse', '--show-toplevel'], { timeoutMs: 10_000 }).catch(() => undefined))?.stdout.trim() ?? dir
+  await run($, ['git', '-C', wt, 'add', '-A'], { timeoutMs: 60_000 }).catch(() => undefined)
+  const stat = (await run($, ['git', '-C', wt, 'diff', '--cached', '--stat'], { timeoutMs: 60_000 }).catch(() => undefined))?.stdout.trim() ?? ''
+  return (
+    `## Changes (worktree, NOT applied to your repository)\n\nWorktree: ${wt}, detached at ${j.head ?? 'HEAD'} of ${j.repo} ` +
+    '(your uncommitted changes are not in it).\n\n```\n' + (stat || 'no changes') + '\n```\n\n' +
+    'Review ALL of it before applying anything:\n\n' +
+    `1. \`git -C "${wt}" diff --cached\` and read every hunk; fix or drop what is wrong.\n` +
+    `2. Apply what passes: \`git -C "${wt}" diff --cached | git -C "${j.repo}" apply --3way\`, then run the repository's own checks.\n` +
+    `3. Remove the worktree: \`git -C "${j.repo}" worktree remove --force "${wt}"\`.\n`
+  )
+}
+
+async function runDelegate($: EngineInterface, input: { to?: string; task?: string; title?: string; cwd?: string; wait?: boolean; mode?: string; model?: string }): Promise<string> {
+  const id = input.to as AgentId
+  const installed = await read($, agentsA)
+  if (!installed.includes(id)) {
+    return `Error: "${String(input.to)}" is not installed here. Installed: ${installed.join(', ') || 'none'}.`
+  }
+  const task = (input.task ?? '').trim()
+  if (task === '' || task.length > 20_000) {
+    return 'Error: task must be 1 to 20000 characters.'
+  }
+  const exe = await agentExe($, id)
+  if (exe === undefined) {
+    return `Error: ${AGENTS[id].bin} not found in PATH.`
+  }
+  let model: string | undefined
+  if (input.model !== undefined && input.model.trim() !== '') {
+    const m = await resolveModel($, id, exe, input.model.trim())
+    if (m.error !== undefined) {
+      return `Error: ${m.error}.`
+    }
+    model = m.model
+  }
+  const write = input.mode === 'write'
+  const title = cut((input.title ?? task.split('\n')[0] ?? 'task').replace(/["'\s]+/g, ' ').trim(), 60)
+  let cwd = input.cwd ?? (await $.session.cwd())
+  const win = (await platform($)) === 'windows'
+  const sep = win ? '\\' : '/'
+  const cfg = ((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await home($)}/.claude`).replace(/[\\/]/g, sep)
+  const now = await $.clock.now()
+  const stamp = `${localStamp(now).replace(/[-:]/g, '').replace('T', '-')}${String(new Date(now).getSeconds()).padStart(2, '0')}`
+  const dir = `${cfg}${sep}delegations`
+  const work = `${dir}${sep}work`
+  const base = `${work}${sep}${stamp}-${id}`
+  const out = `${dir}${sep}${stamp}-${id}.md`
+  const taskFile = `${base}.task.md`
+  let space: Awaited<ReturnType<typeof writeSpace>> | undefined
+  if (write) {
+    space = await writeSpace($, cwd, `${dir}${sep}wt${sep}${stamp}-${id}`)
+    if (space.error !== undefined) {
+      return `Error: ${space.error}.`
+    }
+    cwd = win ? space.dir.replace(/\//g, '\\') : space.dir
+  }
+  const prompt = (write ? DELEGATE_PREAMBLE_WRITE : DELEGATE_PREAMBLE) + task
+  await $.fs.write(taskFile, prompt)
+  await $.fs.write(`${base}.in`, id === 'opencode' ? prompt : '')
+  const job: DelegateJob = {
+    id: `${stamp}-${id}`, to: id, title, out, at: now, state: 'run', base, cwd, wait: input.wait === true,
+    model, write, repo: space?.repo, head: space?.head,
+  }
+  await update($, delegations, list => [job, ...list.filter(j => j.id !== job.id)].slice(0, 6))
+  try {
+    await launchDetached($, await agentArgv($, exe, delegateArgs(id, taskFile, work, title, write, model)), cwd, base, `${base}.in`)
+  } catch (err) {
+    await finishDelegate($, job, null, `could not start: ${String(err)}`)
+    return `Error: ${AGENTS[id].label} could not start (${String(err).slice(0, 200)}).`
+  }
+  ensurePoller($)
+  if (input.wait !== true) {
+    return `Started: "${title}" on ${AGENTS[id].label}${model !== undefined ? ` (${model})` : ''}, ${write ? 'write mode' : 'read-only'}, in ${cwd}. The answer will be written to ${out}; you will get a message when it is ready. Go on with other work meanwhile.`
+  }
+  // wait=true: the hook waits for the exit file through a child process, never with
+  // $.clock.sleep (a sleep spends the hook's own time budget, a $ call in flight does not).
+  // If this wait is lost (budget, reload), the poller still wakes Claude: WAITING says who
+  // is listening
+  WAITING.add(job.id)
+  try {
+    const exit = `${base}.exit`
+    const argv = win
+      ? ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', `$f = ${psQuote(exit)}; for ($i = 0; $i -lt 590 -and -not (Test-Path -LiteralPath $f); $i++) { Start-Sleep -Seconds 1 }`]
+      : ['sh', '-c', 'i=0; while [ ! -f "$1" ] && [ $i -lt 590 ]; do sleep 1; i=$((i+1)); done', 'sh', exit]
+    await (win ? run($, argv, { timeoutMs: 600_000 }) : $.process.run(argv, { timeoutMs: 600_000 })).catch(() => undefined)
+    const cur = (await read($, delegations)).find(j => j.id === job.id)
+    if (cur !== undefined && cur.state === 'run') {
+      await pollDelegations($)
+    }
+    const text = (await readText($, out).catch(() => undefined)) ?? ''
+    return text === '' ? `Still running after 10 minutes: the answer will be written to ${out}; you will get a message.` : text
+  } finally {
+    WAITING.delete(job.id)
+  }
+}
+
+async function cancelDelegate($: EngineInterface, jobId: string) {
+  const j = (await read($, delegations)).find(x => x.id === jobId)
+  if (j?.state === 'run') {
+    await killDelegate($, j)
+    await finishDelegate($, j, null, 'cancelled from the panel')
+  } else {
+    await update($, delegations, list => list.filter(x => x.id !== jobId))
+  }
 }
 
 async function refreshAll($: EngineInterface) {
@@ -2252,6 +2827,10 @@ async function restoreSaved($: EngineInterface) {
   await update($, compactA, () => COMPACT)
   const savedCollapsed = (await $.store.get('collapsed')) as string[] | undefined
   await update($, collapsed, () => (Array.isArray(savedCollapsed) ? savedCollapsed : []))
+  await restoreAuto($)
+  if ((await read($, agentsA)).length === 0) {
+    await detectAgents($).catch(() => undefined)
+  }
 }
 
 export const register: Register = (on, options) => {
@@ -2265,6 +2844,7 @@ export const register: Register = (on, options) => {
           const isOn = (await $.store.get('enabled')) !== false
           await update($, enabled, () => isOn)
           await restoreSaved($)
+          await briefClaude($)
         })().catch(() => undefined),
       )
     }
@@ -2287,6 +2867,7 @@ export const register: Register = (on, options) => {
     await loadModels($)
     CC_VERSION = (await $.session.version()).version
     const ran = await next(e)
+    void detectAgents($).then(() => briefClaude($)).catch(() => undefined)
     // local reads first (files, git); the pull request asks the network, so it does not hold up the start
     await Promise.all([measure($), refreshWhere($), refreshReminders($)])
     void refreshPr($)
@@ -2349,6 +2930,13 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     if (!COMMANDS_DONE) {
       await registerCommands($).catch(() => undefined)
+    }
+    // a hot reload of the mod forgets the registered tool (no session.start follows it)
+    if (!DELEGATE_REGISTERED) {
+      await detectAgents($).catch(() => undefined)
+    }
+    if ((await read($, delegations)).some(j => j.state === 'run')) {
+      ensurePoller($)
     }
     if (e.command !== undefined) {
       await applyMode($, e.command.name, e.command.args)
@@ -2428,6 +3016,18 @@ export const register: Register = (on, options) => {
       $.ui.toast(e.reason === 'answer' ? `Handover note not found at ${h.path}` : 'Handover stopped')
     }
     return r
+  })
+
+  // only this tool: a tool.run hook that may match a tool takes away its move to the
+  // background and its live output
+  on('tool.run', { tool: 'mcp__cockpit__delegate' }, async ($, e) => {
+    try {
+      return { result: await runDelegate($, e as unknown as { to?: string; task?: string; title?: string; cwd?: string; wait?: boolean; mode?: string; model?: string }) }
+    } catch (err) {
+      // an error must reach Claude: a failed hook reads as "no hook answered this call"
+      await hoLog($, `delegate failed: ${String(err).slice(0, 300)}`)
+      return { result: `Error in the delegate tool: ${String(err).slice(0, 300)}. A task already started keeps running; its result will still be written.` }
+    }
   })
 
   // actual effort of each main-loop request (subagents have an agentId)
@@ -2958,6 +3558,12 @@ export const register: Register = (on, options) => {
     const pull = await read($, pr)
     const term = await read($, termLook)
     const handover = await read($, handoverA)
+    const agentsHere = await read($, agentsA)
+    const autoOn = await read($, delegateAuto)
+    const dl = await read($, delegations)
+    if (dl.some(j => j.state === 'run')) {
+      ensurePoller($)
+    }
     const refreshing = await read($, busy)
     const openRem = await read($, remOpen)
     const tl = await read($, tasks)
@@ -3371,6 +3977,11 @@ export const register: Register = (on, options) => {
                   <Button key="ho-tab" plain onPress={() => void startHandover($, 'tab')}>
                     <Text backgroundColor={CHIP_GREEN}><Text color={GREEN}>{' ↗ '}</Text>{'New session '}</Text>
                   </Button>
+                  {agentsHere.map(id => (
+                    <Button key={`ho-${id}`} plain onPress={() => void startHandover($, id)}>
+                      <Text backgroundColor={CHIP_VIOLET}><Text color={VIOLET}>{' → '}</Text>{`${AGENTS[id].label} `}</Text>
+                    </Button>
+                  ))}
                   <Button key="ho-no" plain onPress={() => void update($, handoverA, () => 'idle')}>
                     <Text backgroundColor={BAND_BG} dimColor>{' ✕ '}</Text>
                   </Button>
@@ -3391,6 +4002,50 @@ export const register: Register = (on, options) => {
             )}
           </Box>,
         )}
+
+        {agentsHere.length > 0 &&
+          section('delega', 'Delegation', VIOLET, dl.filter(j => j.state === 'run').length || undefined,
+            <Box flexDirection="column">
+              <Text dimColor>easy tasks, on Claude's own:</Text>
+              {agentsHere.map(id => {
+                const isOn = autoOn.includes(id)
+                return (
+                  <Button key={`dlg-${id}`} plain onPress={() => void toggleAuto($, id)}>
+                    <Text>
+                      <Text color={isOn ? 'success' : undefined} dimColor={!isOn}>{isOn ? '● ' : '○ '}</Text>
+                      {cut(AGENTS[id].label, cols - 8)}
+                      <Text dimColor>{isOn ? ' on' : ' off'}</Text>
+                    </Text>
+                  </Button>
+                )
+              })}
+              {dl.map(j => (
+                <Box key={`dj-${j.id}`} flexDirection="row">
+                  <Button
+                    key={`djc-${j.id}`}
+                    plain
+                    onPress={async press => {
+                      const r = await $.ui.copy({ text: j.out, surface: press.surface })
+                      $.ui.toast(r.isCopied ? 'Result path copied' : j.out)
+                    }}
+                  >
+                    <Text>
+                      <Text color={j.state === 'run' ? 'warning' : j.state === 'done' ? 'success' : 'error'}>
+                        {j.state === 'run' ? '◌ ' : j.state === 'done' ? '✓ ' : '✗ '}
+                      </Text>
+                      <Text dimColor>{`${AGENTS[j.to].label.slice(0, 2)}${j.write === true ? '✎' : ''} `}</Text>
+                      {cut(j.title, cols - 12)}
+                      <Text dimColor>{j.ms !== undefined ? ` ${Math.round(j.ms / 1000)}s` : ''}</Text>
+                    </Text>
+                  </Button>
+                  <Button key={`djx-${j.id}`} plain onPress={() => void cancelDelegate($, j.id)}>
+                    <Text dimColor> ✕</Text>
+                  </Button>
+                </Box>
+              ))}
+              <Text dimColor>or ask: "delegate … to {AGENTS[agentsHere[0] ?? 'opencode'].label}"</Text>
+            </Box>,
+          )}
 
         {pull !== null &&
           section('pr', 'Pull request', BLUE, undefined,

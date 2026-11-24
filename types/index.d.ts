@@ -72,6 +72,12 @@ export type PipelineRun = {
 /** Handover quick action: idle, ask (choosing where to continue), writing (Claude writes the note), clearing */
 export type HandoverPhase = 'idle' | 'ask' | 'writing' | 'clearing'
 
+/** Another coding agent installed on this machine that can take a handover or a delegated task */
+export type AgentId = 'opencode' | 'antigravity'
+
+/** A task delegated to another agent: running in the background, then done or failed */
+export type DelegateJob = { id: string; to: AgentId; title: string; out: string; at: number; state: 'run' | 'done' | 'error'; ms?: number; note?: string; base?: string; cwd?: string; wait?: boolean; model?: string; write?: boolean; repo?: string; head?: string }
+
 /** A side question asked from the panel's Aside section (/btw): never added to the chat */
 export type Aside = { id: string; q: string; a: string; state: 'wait' | 'done' | 'error' }
 
@@ -126,6 +132,12 @@ declare module 'claude-code' {
       asideOpen: Shaped<string | null>
       /** Handover quick action: where it stands */
       handover: Shaped<HandoverPhase>
+      /** other agents found in PATH (OpenCode, Antigravity) */
+      agents: Shaped<AgentId[]>
+      /** agents Claude may hand easy tasks to on its own (session copy of the value in $.store) */
+      delegateAuto: Shaped<AgentId[]>
+      /** tasks delegated in this session, newest first (at most 6) */
+      delegations: Shaped<DelegateJob[]>
     }
   }
 }
