@@ -139,7 +139,9 @@ declare module 'claude-code' {
       /** tasks delegated in this session, newest first (at most 6) */
       delegations: Shaped<DelegateJob[]>
       /** "+" pressed in Reminders or Active modes */
-      adding: Shaped<'rem' | 'mode' | null>
+      adding: Shaped<'rem' | 'mode' | 'skill' | null>
+      /** a skill typed in Active modes that is not installed: waiting for "Install" */
+      skillAsk: Shaped<string | null>
     }
   }
 }

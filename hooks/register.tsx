@@ -44,7 +44,8 @@ const handoverA = atom({ plugin: 'cockpit', key: 'handover' } as const, 'idle' a
 const agentsA = atom({ plugin: 'cockpit', key: 'agents' } as const, [] as AgentId[], { shape: 'agents-1' })
 const delegateAuto = atom({ plugin: 'cockpit', key: 'delegateAuto' } as const, [] as AgentId[], { shape: 'delegateAuto-1' })
 const delegations = atom({ plugin: 'cockpit', key: 'delegations' } as const, [] as DelegateJob[], { shape: 'delegations-1' })
-const adding = atom({ plugin: 'cockpit', key: 'adding' } as const, null as 'rem' | 'mode' | null, { shape: 'adding-1' })
+const adding = atom({ plugin: 'cockpit', key: 'adding' } as const, null as 'rem' | 'mode' | 'skill' | null, { shape: 'adding-2' })
+const skillAsk = atom({ plugin: 'cockpit', key: 'skillAsk' } as const, null as string | null, { shape: 'skillAsk-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -1294,20 +1295,42 @@ async function finishHandover($: EngineInterface, h: HandoverJob) {
   await update($, handoverA, () => 'idle').catch(() => undefined)
 }
 
+// Windows Terminal: wt.exe is an app execution alias (a reparse point into the protected
+// WindowsApps folder), which a plain file check may not see in PATH: then its fixed alias
+// location is used, never the current folder. Failures go to handover.log
+async function wtRun($: EngineInterface, args: string[]): Promise<boolean> {
+  let exe: string
+  try {
+    exe = await bin($, 'wt')
+  } catch {
+    exe = `${(await $.env.get('LOCALAPPDATA')) ?? `${await home($)}\\AppData\\Local`}\\Microsoft\\WindowsApps\\wt.exe`
+  }
+  try {
+    const r = await $.process.run([exe, ...args], { timeoutMs: 15_000 })
+    if (r.exitCode !== 0) {
+      await hoLog($, `wt failed (${exe}): exit ${String(r.exitCode)} ${r.stderr.trim().slice(0, 200)}`)
+    }
+    return r.exitCode === 0
+  } catch (err) {
+    await hoLog($, `wt failed (${exe}): ${String(err).slice(0, 200)}`)
+    return false
+  }
+}
+
+// claude by absolute path for a new tab (the tab starts in the session's folder)
+async function claudeExe($: EngineInterface) {
+  return bin($, 'claude').catch(() => 'claude')
+}
+
 // A new tab of the Windows Terminal this session runs in, same folder, Claude started with
 // the resume prompt (Windows Terminal builds a fresh environment for it); elsewhere the
 // command is copied to paste into a new terminal
 async function openHandoverTab($: EngineInterface, cwd: string, text: string, title?: string) {
   const name = title === undefined ? [] : ['--name', title]
   if ((await platform($)) === 'windows' && (await $.env.get('WT_SESSION')) !== undefined) {
-    try {
-      const r = await run($, ['wt', '-w', '0', 'new-tab', '-d', cwd, 'claude', ...name, text], { timeoutMs: 15_000 })
-      if (r.exitCode === 0) {
-        $.ui.toast('Handover written: new session opened in a new tab')
-        return
-      }
-    } catch {
-      // falls back to the clipboard
+    if (await wtRun($, ['-w', '0', 'new-tab', '-d', cwd, await claudeExe($), ...name, text])) {
+      $.ui.toast('Handover written: new session opened in a new tab')
+      return
     }
   }
   const cmd = `cd "${cwd}" && claude ${title === undefined ? '' : `--name "${title}" `}"${text}"`
@@ -1386,15 +1409,10 @@ async function openAgentTab($: EngineInterface, id: AgentId, cwd: string, path: 
   const exe = (await agentExe($, id)) ?? AGENTS[id].bin
   const label = AGENTS[id].label
   if ((await platform($)) === 'windows' && (await $.env.get('WT_SESSION')) !== undefined) {
-    try {
-      const tab = title === undefined ? [] : ['--title', title]
-      const r = await run($, ['wt', '-w', '0', 'new-tab', ...tab, '-d', cwd, ...(await agentArgv($, exe, args))], { timeoutMs: 15_000 })
-      if (r.exitCode === 0) {
-        $.ui.toast(`Handover written: ${label} opened in a new tab`)
-        return
-      }
-    } catch {
-      // falls back to the clipboard
+    const tab = title === undefined ? [] : ['--title', title]
+    if (await wtRun($, ['-w', '0', 'new-tab', ...tab, '-d', cwd, ...(await agentArgv($, exe, args))])) {
+      $.ui.toast(`Handover written: ${label} opened in a new tab`)
+      return
     }
   }
   const q = (s: string) => `"${s.replace(/"/g, '\\"')}"`
@@ -1972,6 +1990,55 @@ async function addMode($: EngineInterface, name: string) {
   await update($, adding, () => null)
   await runOrFill($, name, '')
   await applyMode($, name, '')
+}
+
+// "other" in Active modes: a skill typed by name. Installed: run as /<name> and listed.
+// Missing: the panel asks first; only on "Install" Claude is asked to find a trustworthy
+// source, show it, install the skill at user scope and turn it on
+const SKILL_NAME = /^[A-Za-z0-9][\w.:-]{0,63}$/
+async function otherSkill($: EngineInterface, raw: string) {
+  const name = raw.trim().replace(/^\//, '')
+  if (!SKILL_NAME.test(name)) {
+    $.ui.toast('Write the name of a skill, e.g. caveman or ponytail')
+    return
+  }
+  const known = await $.command.list().catch(() => [])
+  await update($, adding, () => null)
+  if (known.some(c => c.name === name)) {
+    await runOrFill($, name, '')
+    await update($, modes, ms => (ms.some(m => modeName(m) === name) ? ms : [...ms, name]))
+    return
+  }
+  await update($, skillAsk, () => name)
+}
+
+async function installSkill($: EngineInterface, name: string) {
+  await update($, skillAsk, () => null)
+  const cfg = ((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await home($)}/.claude`).replace(/\\/g, '/')
+  await $.prompt.submit({
+    text:
+      `[cockpit skill] From the panel I asked to turn on the skill "${name}", which is not installed here, and I ` +
+      'confirmed installing it. Find it from a trustworthy source (anthropics/skills, a plugin marketplace Claude Code ' +
+      'knows, or a well-known public repository); if several candidates fit, ask me which one. Tell me the source URL ' +
+      `and the commit you install, then install it at user scope in ${cfg}/skills/${name}/ (its SKILL.md and its files, ` +
+      'without running any of its scripts while installing). Then turn it on with the Skill tool, or tell me to run ' +
+      `/${name} if it is not available yet. If you find no trustworthy source, say so and stop.`,
+  })
+}
+
+// "+ new" in Sessions: a new Claude Code session in a new tab of this Windows Terminal, same
+// folder; elsewhere the command is copied
+async function newSession($: EngineInterface) {
+  const cwd = await $.session.cwd()
+  if ((await platform($)) === 'windows' && (await $.env.get('WT_SESSION')) !== undefined) {
+    if (await wtRun($, ['-w', '0', 'new-tab', '-d', cwd, await claudeExe($)])) {
+      $.ui.toast('New session opened in a new tab')
+      return
+    }
+  }
+  const cmd = `cd "${cwd}" && claude`
+  const r = await $.ui.copy({ text: cmd })
+  $.ui.toast(r.isCopied ? 'Command copied: paste it into a new terminal' : `Run ${cmd} in a new terminal`)
 }
 
 // Marks a reminder done or moves it one day later, in ~/.claude/reminders.json
@@ -3791,6 +3858,7 @@ export const register: Register = (on, options) => {
     const autoOn = await read($, delegateAuto)
     const dl = await read($, delegations)
     const addingNow = await read($, adding)
+    const askSkill = await read($, skillAsk)
     if (dl.some(j => j.state === 'run')) {
       ensurePoller($)
     }
@@ -4090,9 +4158,11 @@ export const register: Register = (on, options) => {
           </Box>,
         )}
 
-        {others.length > 0 &&
-          section('sessioni', 'Sessions', BLUE, others.length,
+        {section('sessioni', 'Sessions', BLUE, others.length,
             <Box flexDirection="column">
+              <Button key="peer-new" plain onPress={() => void newSession($)}>
+                <Text color={BLUE}>{' + new session '}</Text>
+              </Button>
               {others.map(x => (
                 <Button
                   key={`peer-${x.sessionId}`}
@@ -4118,7 +4188,7 @@ export const register: Register = (on, options) => {
                   />
                 </Box>
               )}
-              {targetPeer === undefined && <Text dimColor>click a session to write to it</Text>}
+              {others.length > 0 && targetPeer === undefined && <Text dimColor>click a session to write to it</Text>}
             </Box>,
           )}
         {section('modalita', 'Active modes', VIOLET, act.length + (ns ? 1 : 0),
@@ -4153,9 +4223,40 @@ export const register: Register = (on, options) => {
                     <Text backgroundColor={CHIP_VIOLET}>{` ${n} `}</Text>
                   </Button>
                 ))}
+                <Button key="mode-add-other" plain onPress={() => void update($, adding, () => 'skill')}>
+                  <Text backgroundColor={CHIP_BLUE}>{' other… '}</Text>
+                </Button>
                 <Button key="mode-add-cancel" plain onPress={() => void update($, adding, () => null)}>
                   <Text backgroundColor={BAND_BG} dimColor>{' ✕ '}</Text>
                 </Button>
+              </Box>
+            ) : addingNow === 'skill' ? (
+              <Box flexDirection="column">
+                <Input
+                  key="skill-input"
+                  placeholder="skill name, Enter (Esc to leave)"
+                  value=""
+                  submitLabel="turn on"
+                  onSubmit={t => void otherSkill($, t)}
+                />
+                <Button key="skill-cancel" plain onPress={() => void update($, adding, () => null)}>
+                  <Text dimColor>{' ✕ cancel '}</Text>
+                </Button>
+              </Box>
+            ) : askSkill !== null ? (
+              <Box flexDirection="column">
+                <Text>
+                  <Text color="warning">{cut(askSkill, cols - 22)}</Text> is not installed.
+                </Text>
+                <Text dimColor>Claude finds it, shows you the source, installs it for your user and turns it on.</Text>
+                <Box flexDirection="row" columnGap={1}>
+                  <Button key="skill-install" plain onPress={() => void installSkill($, askSkill)}>
+                    <Text backgroundColor={CHIP_GREEN}><Text color={GREEN}>{' ⇓ '}</Text>{'Install '}</Text>
+                  </Button>
+                  <Button key="skill-no" plain onPress={() => void update($, skillAsk, () => null)}>
+                    <Text backgroundColor={BAND_BG} dimColor>{' ✕ '}</Text>
+                  </Button>
+                </Box>
               </Box>
             ) : (
               <Button key="mode-add" plain onPress={() => void update($, adding, () => 'mode')}>
