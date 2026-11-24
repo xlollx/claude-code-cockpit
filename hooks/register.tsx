@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ProcessRunInit, Register, RenderElement, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { Aside, FileEdit, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
+import type { Aside, FileEdit, HandoverPhase, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
@@ -40,6 +40,7 @@ const asideOpen = atom({ plugin: 'cockpit', key: 'asideOpen' } as const, null as
 const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as string | null, { shape: 'remOpen-1' })
 const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
+const handoverA = atom({ plugin: 'cockpit', key: 'handover' } as const, 'idle' as HandoverPhase, { shape: 'handover-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -1151,6 +1152,85 @@ async function sendToPeer($: EngineInterface, sessionId: string, name: string, t
   }
 }
 
+// Handover for long sessions: Claude writes a hand-off note, then either this session runs
+// /clear and resumes from the note, or a new Windows Terminal tab in the same folder starts
+// from it. The note lives in <config dir>/handovers, never inside the repo
+const HANDOVER_TAG = '[cockpit handover]'
+let HANDOVER: { mode: 'here' | 'tab'; path: string; cwd: string; started: boolean } | null = null
+
+async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
+  if (HANDOVER !== null) {
+    $.ui.toast('A handover is already running')
+    return
+  }
+  const win = (await platform($)) === 'windows'
+  const cwd = await $.session.cwd()
+  const cfg = ((await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await home($)}/.claude`).replace(/\\/g, '/')
+  const folder = (cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? 'session').replace(/[^\w.-]+/g, '-').slice(0, 40)
+  const stamp = localStamp(await $.clock.now()).replace(/[-:]/g, '').replace('T', '-')
+  let path = `${cfg}/handovers/${stamp}-${folder}.md`
+  if (win) {
+    path = path.replace(/\//g, '\\')
+  }
+  HANDOVER = { mode, path, cwd, started: false }
+  await update($, handoverA, () => 'writing')
+  await $.prompt.submit({
+    text:
+      `${HANDOVER_TAG} This session is getting long. Write a handover note to ${path} (create the folder if needed) ` +
+      'so that a fresh Claude session, which has none of this conversation, can pick up the work. Use the Write tool ' +
+      'and do nothing else in this turn. Keep it self-contained and concise, in the language we have been using, with ' +
+      'these sections: Goal, Context (repo, folders, environment, tenant or subscription if any), Done so far (paths, ' +
+      'commits, PR and work item ids), Current state (what works, what is half done, uncommitted changes), Next steps ' +
+      '(ordered and concrete), Decisions and constraints given by the user, Gotchas learned, Key files and commands. ' +
+      'No secrets or tokens. Then reply with one line: Handover written.',
+  })
+}
+
+const resumePrompt = (path: string) =>
+  `Read the handover note at ${path} and continue the work from there. ` +
+  'First give me a short summary of where we are and the next step, then wait for my go.'
+
+async function finishHandover($: EngineInterface, h: { mode: 'here' | 'tab'; path: string; cwd: string }) {
+  const text = resumePrompt(h.path)
+  if (h.mode === 'tab') {
+    await update($, handoverA, () => 'idle')
+    await openHandoverTab($, h.cwd, text)
+    return
+  }
+  await update($, handoverA, () => 'clearing')
+  try {
+    await $.command.run({ command: 'clear' })
+  } catch (err) {
+    await update($, handoverA, () => 'idle')
+    await $.prompt.fill({ text })
+    $.ui.toast(`/clear did not run (${String(err).slice(0, 80)}): run it, then send the prompt left in the box`)
+    return
+  }
+  await $.clock.sleep(800)
+  await $.prompt.submit({ text, asUser: true })
+  await update($, handoverA, () => 'idle').catch(() => undefined)
+}
+
+// A new tab of the Windows Terminal this session runs in, same folder, Claude started with
+// the resume prompt (Windows Terminal builds a fresh environment for it); elsewhere the
+// command is copied to paste into a new terminal
+async function openHandoverTab($: EngineInterface, cwd: string, text: string) {
+  if ((await platform($)) === 'windows' && (await $.env.get('WT_SESSION')) !== undefined) {
+    try {
+      const r = await run($, ['wt', '-w', '0', 'new-tab', '-d', cwd, 'claude', text], { timeoutMs: 15_000 })
+      if (r.exitCode === 0) {
+        $.ui.toast('Handover written: new session opened in a new tab')
+        return
+      }
+    } catch {
+      // falls back to the clipboard
+    }
+  }
+  const cmd = `cd "${cwd}" && claude "${text}"`
+  const r = await $.ui.copy({ text: cmd })
+  $.ui.toast(r.isCopied ? 'Handover written: command copied, paste it into a new terminal' : `Handover written: run ${cmd}`)
+}
+
 async function refreshAll($: EngineInterface) {
   await Promise.all([measure($), refreshWhere($), refreshReminders($)])
   await refreshPr($)
@@ -2181,6 +2261,11 @@ export const register: Register = (on, options) => {
   // turned off with "off", with the stop phrases, with "normal mode" or with /panic.
   // Not from skill.prompt: another plugin intercepts it first and the hook is skipped
   on('prompt.submit', async ($, e, next) => {
+    // the turn that writes the handover note is the one this mod submitted, not a turn
+    // already running when the button was pressed
+    if (HANDOVER !== null && !HANDOVER.started && e.origin?.kind === 'plugin' && e.text.includes(HANDOVER_TAG)) {
+      HANDOVER.started = true
+    }
     if (!COMMANDS_DONE) {
       await registerCommands($).catch(() => undefined)
     }
@@ -2219,6 +2304,22 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'cockpit-uninstall' }, async ($, e) => ({ text: await uninstallCockpit($, e.args.trim().toLowerCase() === 'yes') }))
   on('command.run', { command: 'cockpit' }, openCommand)
   on('command.run', { command: 'sidebar' }, openCommand)
+
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agentId === undefined && HANDOVER?.started === true) {
+      const h = HANDOVER
+      HANDOVER = null
+      if (e.reason !== 'answer' || !(await $.fs.exists(h.path))) {
+        await update($, handoverA, () => 'idle')
+        $.ui.toast(e.reason === 'answer' ? `Handover note not found at ${h.path}` : 'Handover stopped')
+      } else {
+        // after the turn has ended, so /clear does not run inside it
+        $.clock.after(400, () => void finishHandover($, h))
+      }
+    }
+    return r
+  })
 
   // actual effort of each main-loop request (subagents have an agentId)
   on('turn.step', async function* ($, e, next) {
@@ -2747,6 +2848,7 @@ export const register: Register = (on, options) => {
     const today = localStamp(await $.clock.now())
     const pull = await read($, pr)
     const term = await read($, termLook)
+    const handover = await read($, handoverA)
     const refreshing = await read($, busy)
     const openRem = await read($, remOpen)
     const tl = await read($, tasks)
@@ -3145,6 +3247,32 @@ export const register: Register = (on, options) => {
             <Button key="act-paste" plain onPress={() => void pasteImage($)}>
               <Text backgroundColor={CHIP_GREEN}><Text color={GREEN}>{' ⇓ '}</Text>{'Paste image '}</Text>
             </Button>
+            {handover === 'idle' && (
+              <Button key="act-handover" plain onPress={() => void update($, handoverA, () => 'ask')}>
+                <Text backgroundColor={CHIP_BLUE}><Text color={BLUE}>{' ⇄ '}</Text>{'Handover '}</Text>
+              </Button>
+            )}
+            {handover === 'ask' && (
+              <Box key="act-handover-ask" flexDirection="column" width="100%">
+                <Text dimColor>Write a handover note, then continue from it in:</Text>
+                <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+                  <Button key="ho-here" plain onPress={() => void startHandover($, 'here')}>
+                    <Text backgroundColor={CHIP_ORANGE}><Text color={ACCENT}>{' ↻ '}</Text>{'This session, cleared '}</Text>
+                  </Button>
+                  <Button key="ho-tab" plain onPress={() => void startHandover($, 'tab')}>
+                    <Text backgroundColor={CHIP_GREEN}><Text color={GREEN}>{' ↗ '}</Text>{'New session '}</Text>
+                  </Button>
+                  <Button key="ho-no" plain onPress={() => void update($, handoverA, () => 'idle')}>
+                    <Text backgroundColor={BAND_BG} dimColor>{' ✕ '}</Text>
+                  </Button>
+                </Box>
+              </Box>
+            )}
+            {(handover === 'writing' || handover === 'clearing') && (
+              <Text key="act-handover-run" backgroundColor={CHIP_BLUE} color={BLUE}>
+                {handover === 'writing' ? ' ⇄ Writing handover… ' : ' ⇄ Clearing and resuming… '}
+              </Text>
+            )}
             {term === 'pending' && (
               <Button key="act-term" plain onPress={async () => $.ui.toast(await applyTerminalLook($))}>
                 <Text backgroundColor={CHIP_ORANGE} color={ACCENT}>{' ◆ Terminal look '}</Text>

@@ -69,6 +69,9 @@ export type PipelineRun = {
   error: string
 }
 
+/** Handover quick action: idle, ask (choosing where to continue), writing (Claude writes the note), clearing */
+export type HandoverPhase = 'idle' | 'ask' | 'writing' | 'clearing'
+
 /** A side question asked from the panel's Aside section (/btw): never added to the chat */
 export type Aside = { id: string; q: string; a: string; state: 'wait' | 'done' | 'error' }
 
@@ -121,6 +124,8 @@ declare module 'claude-code' {
       asides: Shaped<Aside[]>
       /** id of the side question shown in full (null: the newest) */
       asideOpen: Shaped<string | null>
+      /** Handover quick action: where it stands */
+      handover: Shaped<HandoverPhase>
     }
   }
 }
