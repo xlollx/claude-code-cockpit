@@ -1156,7 +1156,9 @@ async function sendToPeer($: EngineInterface, sessionId: string, name: string, t
 // /clear and resumes from the note, or a new Windows Terminal tab in the same folder starts
 // from it. The note lives in <config dir>/handovers, never inside the repo
 const HANDOVER_TAG = '[cockpit handover]'
-type HandoverJob = { mode: 'here' | 'tab'; path: string; cwd: string; at: number; started: boolean }
+// turnId: the turn that writes the note, set by turn.start (prompt.submit does not hear the
+// prompts this mod submits)
+type HandoverJob = { mode: 'here' | 'tab'; path: string; cwd: string; at: number; turnId?: string }
 
 // the running job lives in $.store, so a reload of the mod between the press and the end of
 // the writing turn does not lose it
@@ -1204,7 +1206,7 @@ async function startHandover($: EngineInterface, mode: 'here' | 'tab') {
   if (win) {
     path = path.replace(/\//g, '\\')
   }
-  await setJob($, { mode, path, cwd, at: await $.clock.now(), started: false })
+  await setJob($, { mode, path, cwd, at: await $.clock.now() })
   await update($, handoverA, () => 'writing')
   await hoLog($, `start mode=${mode} path=${path}`)
   await $.prompt.submit({
@@ -2303,15 +2305,6 @@ export const register: Register = (on, options) => {
   // turned off with "off", with the stop phrases, with "normal mode" or with /panic.
   // Not from skill.prompt: another plugin intercepts it first and the hook is skipped
   on('prompt.submit', async ($, e, next) => {
-    // the turn that writes the handover note is the one this mod submitted, not a turn
-    // already running when the button was pressed
-    if (e.text.includes(HANDOVER_TAG)) {
-      const job = await getJob($)
-      await hoLog($, `prompt.submit seen origin=${e.origin?.kind} job=${job !== null}`)
-      if (job !== null && !job.started) {
-        await setJob($, { ...job, started: true })
-      }
-    }
     if (!COMMANDS_DONE) {
       await registerCommands($).catch(() => undefined)
     }
@@ -2351,6 +2344,20 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'cockpit' }, openCommand)
   on('command.run', { command: 'sidebar' }, openCommand)
 
+  // the turn that writes the handover note is the one this mod submitted, not a turn
+  // already running when the button was pressed
+  on('turn.start', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agentId === undefined && e.text.includes(HANDOVER_TAG)) {
+      const job = await getJob($)
+      if (job !== null && job.turnId === undefined) {
+        await setJob($, { ...job, turnId: e.turnId })
+        await hoLog($, `turn.start seen turnId=${e.turnId}`)
+      }
+    }
+    return r
+  })
+
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
     if (e.agentId !== undefined) {
@@ -2367,12 +2374,13 @@ export const register: Register = (on, options) => {
     } catch {
       // not written (yet)
     }
-    await hoLog($, `turn.complete reason=${e.reason} started=${h.started} fresh=${fresh}`)
+    const own = h.turnId === e.turnId
+    await hoLog($, `turn.complete reason=${e.reason} own=${own} fresh=${fresh}`)
     if (fresh) {
       await setJob($, null)
       // after the turn has ended, so /clear does not run inside it
       $.clock.after(400, () => void finishHandover($, h))
-    } else if (h.started) {
+    } else if (own) {
       await setJob($, null)
       await update($, handoverA, () => 'idle')
       $.ui.toast(e.reason === 'answer' ? `Handover note not found at ${h.path}` : 'Handover stopped')
