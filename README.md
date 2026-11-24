@@ -150,6 +150,8 @@ Shows which style modes are on, so you never wonder why Claude is answering in a
 
 `✕` next to a skill puts the phrase that turns it off into the prompt. A skill named `panic`, run without arguments, clears the list.
 
+`+ add` lists the mode skills that are off (`i-have-adhd`, `caveman`, `ponytail`): a click turns one on as `/<name>` would (the prompt is filled instead when the skill is not installed).
+
 ### Context
 
 - Three aligned bars: the context window in use (`ctx`), and your 5-hour and 7-day usage limits, which turn yellow at 60% and red at 80%.
@@ -222,6 +224,8 @@ Open reminders due within 7 days, read from a JSON file (see [Optional integrati
 
 - `✓ done` marks it done;
 - `+1 day` moves it one day later.
+
+`+ add` opens a box to write a new one: `DD/MM HH:MM title`, `YYYY-MM-DD HH:MM title`, `HH:MM title` (today, or tomorrow if that time has passed) or `+30m` / `+2h` / `+1d title`. It is added to the same file.
 
 ### Edited files
 

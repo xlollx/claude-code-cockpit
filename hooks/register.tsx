@@ -44,6 +44,7 @@ const handoverA = atom({ plugin: 'cockpit', key: 'handover' } as const, 'idle' a
 const agentsA = atom({ plugin: 'cockpit', key: 'agents' } as const, [] as AgentId[], { shape: 'agents-1' })
 const delegateAuto = atom({ plugin: 'cockpit', key: 'delegateAuto' } as const, [] as AgentId[], { shape: 'delegateAuto-1' })
 const delegations = atom({ plugin: 'cockpit', key: 'delegations' } as const, [] as DelegateJob[], { shape: 'delegations-1' })
+const adding = atom({ plugin: 'cockpit', key: 'adding' } as const, null as 'rem' | 'mode' | null, { shape: 'adding-1' })
 
 // Skills that stay on for the session, with the phrase that turns them off
 const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
@@ -54,6 +55,8 @@ const MODE_SKILLS: Record<string, { label: string; stop: string }> = {
   ponytail: { label: 'ponytail', stop: 'stop ponytail' },
 }
 const modeName = (m: string) => m.split(' ')[0] ?? m
+// offered by "+" in Active modes
+const MODE_CHOICES = ['i-have-adhd', 'caveman', 'ponytail']
 
 // The same modes asked for in words in a prompt (English or Italian)
 const MODE_ON: Record<string, RegExp> = {
@@ -1911,6 +1914,66 @@ async function remindersPath($: EngineInterface) {
   return (await $.env.get('COCKPIT_REMINDERS_FILE')) ?? `${await home($)}/.claude/reminders.json`
 }
 
+// "+" in Reminders: "DD/MM HH:MM title", "YYYY-MM-DD HH:MM title", "HH:MM title" (today, or
+// tomorrow if already past) or "+30m / +2h / +1d title"; added to the reminders file
+function parseReminder(text: string, now: number): { due: string; title: string } | undefined {
+  const t = text.trim()
+  const p2 = (n: number | string) => String(n).padStart(2, '0')
+  const today = localStamp(now)
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2})[:.](\d{2})\s+(.+)$/.exec(t)
+  if (m) {
+    return { due: `${m[1]}-${p2(m[2] ?? '')}-${p2(m[3] ?? '')}T${p2(m[4] ?? '')}:${m[5]}`, title: m[6] ?? '' }
+  }
+  m = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?\s+(\d{1,2})[:.](\d{2})\s+(.+)$/.exec(t)
+  if (m) {
+    return { due: `${m[3] ?? today.slice(0, 4)}-${p2(m[2] ?? '')}-${p2(m[1] ?? '')}T${p2(m[4] ?? '')}:${m[5]}`, title: m[6] ?? '' }
+  }
+  m = /^(\d{1,2})[:.](\d{2})\s+(.+)$/.exec(t)
+  if (m) {
+    const due = `${today.slice(0, 10)}T${p2(m[1] ?? '')}:${m[2]}`
+    return { due: due > today ? due : `${localStamp(now + 864e5).slice(0, 10)}T${p2(m[1] ?? '')}:${m[2]}`, title: m[3] ?? '' }
+  }
+  m = /^\+(\d+)\s*([mhd])\s+(.+)$/i.exec(t)
+  if (m) {
+    const unit = { m: 60e3, h: 3600e3, d: 864e5 }[(m[2] ?? 'm').toLowerCase() as 'm' | 'h' | 'd']
+    return { due: localStamp(now + Number(m[1]) * unit), title: m[3] ?? '' }
+  }
+  return undefined
+}
+
+async function addReminder($: EngineInterface, text: string) {
+  const r = parseReminder(text, await $.clock.now())
+  if (r === undefined || r.title.trim() === '') {
+    $.ui.toast('Write "DD/MM HH:MM title", "HH:MM title" or "+2h title"')
+    return
+  }
+  const path = await remindersPath($)
+  let list: Record<string, unknown>[] = []
+  const old = await readText($, path)
+  if (old) {
+    try {
+      list = JSON.parse(old) as Record<string, unknown>[]
+    } catch {
+      $.ui.toast(`${path} is not valid JSON: nothing added`)
+      return
+    }
+  }
+  const id = `cockpit-${r.due.replace(/\D/g, '')}-${String(list.length + 1)}`
+  list.push({ id, due: r.due, title: r.title.trim(), action: '', done: false })
+  await $.fs.write(path, JSON.stringify(list, null, 2) + '\n')
+  await update($, adding, () => null)
+  await refreshReminders($)
+  $.ui.toast(`Reminder added for ${r.due.slice(8, 10)}/${r.due.slice(5, 7)} ${r.due.slice(11, 16)}`)
+}
+
+// "+" in Active modes: a mode skill turned on as /<name> would (the prompt is filled when the
+// command cannot run, e.g. the skill is not installed)
+async function addMode($: EngineInterface, name: string) {
+  await update($, adding, () => null)
+  await runOrFill($, name, '')
+  await applyMode($, name, '')
+}
+
 // Marks a reminder done or moves it one day later, in ~/.claude/reminders.json
 async function changeReminder($: EngineInterface, id: string, action: 'done' | 'snooze') {
   const path = await remindersPath($)
@@ -3561,6 +3624,7 @@ export const register: Register = (on, options) => {
     const agentsHere = await read($, agentsA)
     const autoOn = await read($, delegateAuto)
     const dl = await read($, delegations)
+    const addingNow = await read($, adding)
     if (dl.some(j => j.state === 'run')) {
       ensurePoller($)
     }
@@ -3916,6 +3980,22 @@ export const register: Register = (on, options) => {
                 </Button>
               </Box>
             ))}
+            {addingNow === 'mode' ? (
+              <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+                {MODE_CHOICES.filter(n => !act.some(m => modeName(m) === n)).map(n => (
+                  <Button key={`mode-add-${n}`} plain onPress={() => void addMode($, n)}>
+                    <Text backgroundColor={CHIP_VIOLET}>{` ${n} `}</Text>
+                  </Button>
+                ))}
+                <Button key="mode-add-cancel" plain onPress={() => void update($, adding, () => null)}>
+                  <Text backgroundColor={BAND_BG} dimColor>{' ✕ '}</Text>
+                </Button>
+              </Box>
+            ) : (
+              <Button key="mode-add" plain onPress={() => void update($, adding, () => 'mode')}>
+                <Text color={VIOLET}>{' + add '}</Text>
+              </Button>
+            )}
           </Box>,
         )}
 
@@ -4133,9 +4213,9 @@ export const register: Register = (on, options) => {
           </Box>,
         )}
 
-        {rem.length > 0 &&
-          section('promemoria', 'Reminders', VIOLET, rem.length,
+        {section('promemoria', 'Reminders', VIOLET, rem.length,
             <Box flexDirection="column">
+              {rem.length === 0 && addingNow !== 'rem' && <Text dimColor>none in the next 7 days</Text>}
               {rem.slice(0, 3).map(r => (
                 <Box flexDirection="column">
                   {/* a click shows the whole text, another folds it back to one line */}
@@ -4155,6 +4235,24 @@ export const register: Register = (on, options) => {
                   </Box>
                 </Box>
               ))}
+              {addingNow === 'rem' ? (
+                <Box flexDirection="column">
+                  <Input
+                    key="rem-add-input"
+                    placeholder="DD/MM HH:MM title, HH:MM title, +2h title (Esc to leave)"
+                    value=""
+                    submitLabel="add"
+                    onSubmit={t => void addReminder($, t)}
+                  />
+                  <Button key="rem-add-cancel" plain onPress={() => void update($, adding, () => null)}>
+                    <Text dimColor>{' ✕ cancel '}</Text>
+                  </Button>
+                </Box>
+              ) : (
+                <Button key="rem-add" plain onPress={() => void update($, adding, () => 'rem')}>
+                  <Text color={VIOLET}>{' + add '}</Text>
+                </Button>
+              )}
             </Box>,
           )}
 

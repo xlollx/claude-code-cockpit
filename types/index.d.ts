@@ -138,6 +138,8 @@ declare module 'claude-code' {
       delegateAuto: Shaped<AgentId[]>
       /** tasks delegated in this session, newest first (at most 6) */
       delegations: Shaped<DelegateJob[]>
+      /** "+" pressed in Reminders or Active modes */
+      adding: Shaped<'rem' | 'mode' | null>
     }
   }
 }
