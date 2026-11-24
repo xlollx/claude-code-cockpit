@@ -2203,6 +2203,170 @@ async function trackTasks($: EngineInterface, tool: string, input: Record<string
 // drawn row then compare equal
 const norm = (s: string) => s.toLowerCase().replace(/[*`_#>|\[\]]/g, '').replace(/\s+/g, ' ')
 
+// ── Copy selection ──────────────────────────────────────────────────────────────────────
+// $.ui.selection() gives the text as drawn (no bold, no links). The markdown of the row it
+// lies in is kept (RAW): the selection is found again in it, alphanumerics only so that
+// bullets, wrapping and table borders do not matter, and the markdown of exactly that span
+// is rebuilt (inline styles reopened when the span starts inside them)
+const RAW = new Map<string, string>()
+function rememberRaw(id: string, md: string) {
+  if (md.trim() === '') {
+    return
+  }
+  RAW.delete(id)
+  RAW.set(id, md)
+  if (RAW.size > 400) {
+    const first = RAW.keys().next().value
+    if (first !== undefined) {
+      RAW.delete(first)
+    }
+  }
+}
+
+type StyledChar = { c: string; b: boolean; i: boolean; code: boolean; href?: string }
+type StyledLine = { prefix: string; chars: StyledChar[] }
+
+const LINE_PREFIX = /^(\s*(?:[-*+]|\d+[.)])\s+|#{1,6}\s+|>\s?)/
+
+// one markdown line -> its block prefix and its characters with their inline style
+function styleLine(line: string): StyledLine {
+  const m = LINE_PREFIX.exec(line)
+  const prefix = m?.[1] ?? ''
+  const s = line.slice(prefix.length)
+  const chars: StyledChar[] = []
+  let b = false
+  let it = false
+  let code = false
+  for (let k = 0; k < s.length; k++) {
+    const ch = s[k] ?? ''
+    if (!code && s.startsWith('**', k)) {
+      b = !b
+      k++
+      continue
+    }
+    if (ch === '`') {
+      code = !code
+      continue
+    }
+    if (!code && (ch === '*' || ch === '_') && /[^\w*]|^$/.test(s[k - 1] ?? '') !== /[^\w*]|^$/.test(s[k + 1] ?? '')) {
+      // a single * or _ next to a word on one side only: an italic marker
+      it = !it
+      continue
+    }
+    if (!code && ch === '[') {
+      const lm = /^\[([^\]]+)\]\((https?:[^)\s]+)\)/.exec(s.slice(k))
+      if (lm) {
+        for (const lc of lm[1] ?? '') {
+          chars.push({ c: lc, b, i: it, code: false, href: lm[2] })
+        }
+        k += lm[0].length - 1
+        continue
+      }
+    }
+    chars.push({ c: ch, b, i: it, code })
+  }
+  return { prefix, chars }
+}
+
+// the span of a styled row back to markdown
+function rebuild(lines: StyledLine[], from: { l: number; k: number }, to: { l: number; k: number }) {
+  const out: string[] = []
+  for (let l = from.l; l <= to.l; l++) {
+    const line = lines[l]
+    if (line === undefined) {
+      continue
+    }
+    const a = l === from.l ? from.k : 0
+    const z = l === to.l ? to.k : line.chars.length - 1
+    let md = a === 0 ? line.prefix.replace(/^>\s?/, '') : ''
+    let st = { b: false, i: false, code: false }
+    let k = a
+    while (k <= z) {
+      const ch = line.chars[k]
+      if (ch === undefined) {
+        break
+      }
+      if (ch.href !== undefined) {
+        let text = ''
+        const href = ch.href
+        while (k <= z && line.chars[k]?.href === href) {
+          text += line.chars[k]?.c ?? ''
+          k++
+        }
+        md += `[${text}](${href})`
+        continue
+      }
+      if (st.code !== ch.code) {
+        md += '`'
+      }
+      if (!ch.code) {
+        if (st.b !== ch.b) {
+          md += '**'
+        }
+        if (st.i !== ch.i) {
+          md += '*'
+        }
+      }
+      st = { b: ch.b, i: ch.i, code: ch.code }
+      md += ch.c
+      k++
+    }
+    md += (st.i ? '*' : '') + (st.b ? '**' : '') + (st.code ? '`' : '')
+    out.push(md)
+  }
+  return out.join('\n')
+}
+
+const alnum = (c: string) => /[\p{L}\p{N}]/u.test(c)
+
+function selectionMarkdown(sel: string, rowMd: string | undefined): string {
+  // the drawn text, its bullets and bars made markdown again (used when no row is found)
+  const fallback = sel
+    .split(/\r?\n/)
+    .map(l => l.replace(/^\s*[│▎┃|]\s?/, '').replace(/^(\s*)[•◦▪●]\s+/, '$1- '))
+    .join('\n')
+    .trim()
+  if (rowMd === undefined) {
+    return fallback
+  }
+  const lines = rowMd.split('\n').map(styleLine)
+  // every alphanumeric of the row, with where it is
+  const pos: { l: number; k: number }[] = []
+  let hay = ''
+  lines.forEach((line, l) =>
+    line.chars.forEach((ch, k) => {
+      if (alnum(ch.c)) {
+        hay += ch.c.toLowerCase()
+        pos.push({ l, k })
+      }
+    }),
+  )
+  // list markers are line prefixes in the markdown, not text: left out of the search
+  const needle = [...fallback.replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, '')].filter(alnum).join('').toLowerCase()
+  const at = needle === '' ? -1 : hay.indexOf(needle)
+  if (at === -1) {
+    return fallback
+  }
+  const from = { ...(pos[at] ?? { l: 0, k: 0 }) }
+  const to = { ...(pos[at + needle.length - 1] ?? from) }
+  // punctuation the selection had around its first and last letters
+  const lead = /^[^\p{L}\p{N}]*/u.exec(fallback.replace(/^\s*-\s+/, ''))?.[0].trim().length ?? 0
+  const trail = /[^\p{L}\p{N}]*$/u.exec(fallback)?.[0].trim().length ?? 0
+  from.k = Math.max(0, from.k - lead)
+  to.k = Math.min((lines[to.l]?.chars.length ?? 1) - 1, to.k + trail)
+  return rebuild(lines, from, to)
+}
+
+async function copySelection($: EngineInterface) {
+  const sel = await $.ui.selection().catch(() => undefined)
+  if (sel === undefined || sel.text.trim() === '') {
+    $.ui.toast('Select some text with the mouse first, then press Copy selection')
+    return
+  }
+  const md = selectionMarkdown(sel.text, sel.requestId === undefined ? undefined : RAW.get(sel.requestId))
+  await copyRich($, mdHtml(md), mdPlain(md), 'Selection copied with its formatting: paste it into Teams, Outlook or a mail')
+}
+
 // Transcript rows drawn so far (requestId + text), to scroll to a search hit
 const ROWS: { id: string; text: string }[] = []
 function rememberRow(id: string, text: string) {
@@ -3196,6 +3360,7 @@ export const register: Register = (on, options) => {
   // around the line the engine draws, so its formatting is preserved.
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     rememberRow(e.requestId, e.props.text)
+    rememberRaw(e.requestId, e.props.text)
     if (!(await read($, enabled)) || e.props.origin.kind !== 'composer' || e.props.text.trim() === '') {
       return next(e)
     }
@@ -3232,6 +3397,7 @@ export const register: Register = (on, options) => {
   // in a box with a green bar and dark background, highlighted by language
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     rememberRow(e.requestId, e.props.text)
+    rememberRaw(e.requestId, e.props.text)
     if (!(await read($, enabled))) {
       return next(e)
     }
@@ -4041,6 +4207,9 @@ export const register: Register = (on, options) => {
             </Button>
             <Button key="act-paste" plain onPress={() => void pasteImage($)}>
               <Text backgroundColor={CHIP_GREEN}><Text color={GREEN}>{' ⇓ '}</Text>{'Paste image '}</Text>
+            </Button>
+            <Button key="act-copysel" plain onPress={() => void copySelection($)}>
+              <Text backgroundColor={CHIP_ORANGE}><Text color={ACCENT}>{' ⧉ '}</Text>{'Copy selection '}</Text>
             </Button>
             {handover === 'idle' && (
               <Button key="act-handover" plain onPress={() => void update($, handoverA, () => 'ask')}>

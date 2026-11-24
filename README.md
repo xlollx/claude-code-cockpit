@@ -258,6 +258,10 @@ Click `⧉ Copy code` under any code block to copy its content, without the box,
 
 Quoted blocks (`> ...`) are drawn with a grey bar as tall as the block, their lists and wrapped lines indented. Under every quoted block, for example text Claude prepares for you to paste into a ticket or a mail, click `⧉ Copy text`: it is copied **with its formatting** (bold, italics, inline code, links, bulleted and numbered lists), so Teams, Outlook, Word and web forms paste it formatted, not as markdown. Editors that take plain text get it without markdown markers, links written as `text (url)`.
 
+### Copy selection
+
+Select any text in the chat with the mouse, then press `⧉ Copy selection` in Quick actions: it is copied **with the formatting of the original message** (bold, italics, inline code, links, lists, headings), even when the selection starts or ends in the middle of a line, so Teams, Outlook and web forms paste it formatted. A selection that spans several messages, or text outside a message, is copied as drawn, bullets turned back into a list. Needs Claude Code's fullscreen view (where the mouse selects text in the app).
+
 ### Copy table
 
 Click `⧉ Copy table` under any table: it is copied **as a real table**, so pasting into Teams, Outlook, Word or Excel gives rows and columns, not pipes and dashes.
