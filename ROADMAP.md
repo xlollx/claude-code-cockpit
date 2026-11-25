@@ -46,6 +46,7 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 - [x] Write commands matched only at the start of a command, and MCP tools that write.
 - [x] Chat look: prompts, command output, code, tables with copy for Teams/Outlook/Excel, readable headings and lists, end-of-turn line.
 - [x] `/newstyle on|off`.
+- [x] Panel sections in the order you choose, shown or hidden from the `⚙ layout` editor.
 - [x] Search in the session's messages from the panel, with jump to the message.
 - [x] Azure DevOps pipeline runs requested by you, with pending approvals (read-only).
 - [x] Active modes also follow modes asked for in words ("adhd mode on").

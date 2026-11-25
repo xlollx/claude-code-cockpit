@@ -95,7 +95,8 @@ The panel sits on the right of the chat when the terminal is wide enough (about 
 - **`↻`**, at the top, refreshes every section at once (folder, Azure, kubectl, git, context, reminders, sessions, pull request, pipelines) instead of waiting for its timer; it shows `◌` while the answers come in. The compact bar has it too.
 - The panel opens at once with what is already known and fills in as the answers arrive: a slow GitHub or Azure DevOps lookup never delays it.
 - Sections with nothing to show (no PR, no pipelines, no reminders) stay hidden.
-- Hide sections you never want with the `hiddenSections` option.
+- **`⚙ layout`**, at the top, opens the layout editor: `●`/`○` shows or hides a section, `↑`/`↓` moves it, `↺ reset` goes back to the default order, `✓ done` closes the editor. Order and hidden sections are remembered across sessions.
+- Hide sections for good with the `hiddenSections` option (they do not show up in the layout editor).
 - At the bottom edge: `● Claude Code <version>` and how long the session has been running, always pinned there while the sections scroll.
 - **`⇥ compact`**, at the top next to the panel's `✕`, closes the side panel and shows a 2-line summary above the prompt instead (folder, subscription, kubectl context, branch, model and effort, context, running pipelines, writes, reminders, other sessions), so the chat gets the whole width; `⇤ expand` on that bar, or `/cockpit`, brings the side panel back. The choice is remembered across sessions.
 

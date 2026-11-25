@@ -102,6 +102,12 @@ declare module 'claude-code' {
       effort: Shaped<string | null>
       /** ids of the collapsed sections (session copy of the value in $.store) */
       collapsed: Shaped<string[]>
+      /** order of the panel sections chosen in the layout editor (session copy of $.store) */
+      order: Shaped<string[]>
+      /** sections hidden from the layout editor (session copy of $.store) */
+      hidden: Shaped<string[]>
+      /** the layout editor is open */
+      layout: Shaped<boolean>
       /** "mode" skills turned on in this session (e.g. "i-have-adhd", "ponytail full") */
       modes: Shaped<string[]>
       /** models shown in "Modello": known aliases + families seen in use or in agents */

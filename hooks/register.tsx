@@ -39,6 +39,9 @@ const asides = atom({ plugin: 'cockpit', key: 'asides' } as const, [] as Aside[]
 const asideOpen = atom({ plugin: 'cockpit', key: 'asideOpen' } as const, null as string | null, { shape: 'asideOpen-1' })
 const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as string | null, { shape: 'remOpen-1' })
 const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
+const orderA = atom({ plugin: 'cockpit', key: 'order' } as const, [] as string[], { shape: 'order-1' })
+const hiddenA = atom({ plugin: 'cockpit', key: 'hidden' } as const, [] as string[], { shape: 'hidden-1' })
+const layoutA = atom({ plugin: 'cockpit', key: 'layout' } as const, false, { shape: 'layout-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 const handoverA = atom({ plugin: 'cockpit', key: 'handover' } as const, 'idle' as HandoverPhase, { shape: 'handover-1' })
 const agentsA = atom({ plugin: 'cockpit', key: 'agents' } as const, [] as AgentId[], { shape: 'agents-1' })
@@ -96,6 +99,63 @@ async function toggleSection($: EngineInterface, id: string) {
   const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
   await update($, collapsed, () => next)
   await $.store.set('collapsed', next)
+}
+
+// Panel layout: the sections in their default order, with the names the layout editor shows.
+// The order and the sections hidden from the panel are kept in $.store (the hiddenSections
+// option still hides a section for good, and those do not show up in the editor)
+const SECTIONS: ReadonlyArray<readonly [string, string]> = [
+  ['dove', 'Where you are'], ['modello', 'Model'], ['btw', 'Aside'], ['search', 'Search'], ['sessioni', 'Sessions'],
+  ['modalita', 'Active modes'], ['contesto', 'Context'], ['azioni', 'Quick actions'], ['delega', 'Delegation'],
+  ['pr', 'Pull request'], ['tasks', 'Tasks'], ['pipelines', 'Pipelines'], ['scritture', 'Write commands'],
+  ['promemoria', 'Reminders'], ['file', 'Edited files'],
+]
+const DEFAULT_ORDER = SECTIONS.map(s => s[0])
+const sectionTitle = (id: string) => SECTIONS.find(s => s[0] === id)?.[1] ?? id
+
+// the saved order completed: unknown ids dropped, a section missing from it (one added by a
+// later version, or hidden by the option) goes right after the one before it in the default order
+function fullOrder(saved: readonly string[]): string[] {
+  const out = [...new Set(saved.filter(id => DEFAULT_ORDER.includes(id)))]
+  DEFAULT_ORDER.forEach((id, i) => {
+    if (!out.includes(id)) {
+      const prev = DEFAULT_ORDER.slice(0, i).reverse().find(p => out.includes(p))
+      out.splice(prev === undefined ? 0 : out.indexOf(prev) + 1, 0, id)
+    }
+  })
+  return out
+}
+
+// one place up (-1) or down (+1) among the sections the editor lists
+function moveIn(order: readonly string[], id: string, delta: number, skip: ReadonlySet<string>): string[] {
+  const list = fullOrder(order).filter(x => !skip.has(x))
+  const i = list.indexOf(id)
+  const j = i + delta
+  if (i < 0 || j < 0 || j >= list.length) {
+    return fullOrder(order)
+  }
+  ;[list[i], list[j]] = [list[j]!, list[i]!]
+  return fullOrder(list)
+}
+
+async function moveSection($: EngineInterface, id: string, delta: number) {
+  const next = moveIn(await read($, orderA), id, delta, HIDDEN)
+  await update($, orderA, () => next)
+  await $.store.set('order', next)
+}
+
+async function toggleHidden($: EngineInterface, id: string) {
+  const cur = await read($, hiddenA)
+  const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
+  await update($, hiddenA, () => next)
+  await $.store.set('hidden', next)
+}
+
+async function resetLayout($: EngineInterface) {
+  await update($, orderA, () => [])
+  await update($, hiddenA, () => [])
+  await $.store.delete('order')
+  await $.store.delete('hidden')
 }
 
 // Buttons: /model <alias or id> and /effort <level> apply immediately, without a picker.
@@ -3121,6 +3181,10 @@ async function restoreSaved($: EngineInterface) {
   await update($, compactA, () => COMPACT)
   const savedCollapsed = (await $.store.get('collapsed')) as string[] | undefined
   await update($, collapsed, () => (Array.isArray(savedCollapsed) ? savedCollapsed : []))
+  const savedOrder = (await $.store.get('order')) as string[] | undefined
+  await update($, orderA, () => (Array.isArray(savedOrder) ? savedOrder : []))
+  const savedHidden = (await $.store.get('hidden')) as string[] | undefined
+  await update($, hiddenA, () => (Array.isArray(savedHidden) ? savedHidden : []))
   await restoreAuto($)
   if ((await read($, agentsA)).length === 0) {
     await detectAgents($).catch(() => undefined)
@@ -3883,8 +3947,13 @@ export const register: Register = (on, options) => {
     // Collapsible section: click on the title opens/closes it, the state persists across sessions
     const closed = await read($, collapsed)
     const now = await $.clock.now()
+    const order = fullOrder(await read($, orderA))
+    const userHidden = await read($, hiddenA)
+    const editing = await read($, layoutA)
+    // each section is built where it is written below and drawn later, in the order chosen
+    const built = new Map<string, RenderNode>()
     const section = (id: string, title: string, color: string, count: number | undefined, body: RenderNode) => {
-      if (HIDDEN.has(id)) {
+      if (HIDDEN.has(id) || userHidden.includes(id)) {
         return null
       }
       const isClosed = closed.includes(id)
@@ -3894,9 +3963,9 @@ export const register: Register = (on, options) => {
       // exact length (a clipped rule would end in the terminal's ellipsis), one spare cell
       const rule = Math.max(0, cols - label.length - badge.length - 2)
 
-      return (
+      built.set(id, (
         // folded sections stack without a blank line between them
-        <Box flexDirection="column" marginBottom={isClosed ? 0 : 1}>
+        <Box key={`blk-${id}`} flexDirection="column" marginBottom={isClosed ? 0 : 1}>
           <Box flexDirection="row">
             <Button key={`sec-${id}`} plain onPress={() => void toggleSection($, id)}>
               <Text bold color={isClosed ? undefined : color} dimColor={isClosed}>
@@ -3908,8 +3977,10 @@ export const register: Register = (on, options) => {
           </Box>
           {!isClosed && body}
         </Box>
-      )
+      ))
+      return null
     }
+    const editable = order.filter(id => !HIDDEN.has(id))
     const fam = /^claude-([a-z]+)/.exec(u?.model ?? '')?.[1]
     const modelOptions = (await read($, models)).map(m => ({
       value: m.id,
@@ -3936,11 +4007,59 @@ export const register: Register = (on, options) => {
             <Button key="refresh" plain onPress={() => void refreshNow($)}>
               <Text color={refreshing ? ACCENT : BLUE}>{refreshing ? '◌' : '↻'}</Text>
             </Button>
+            <Button key="layout" plain onPress={() => void update($, layoutA, x => !x)}>
+              <Text color={editing ? ACCENT : BLUE}>{cols >= 30 ? '⚙ layout' : '⚙'}</Text>
+            </Button>
             <Button key="compact" plain onPress={() => void toggleCompact($)}>
               <Text color={BLUE}>{cols >= 30 ? '⇥ compact' : '⇥'}</Text>
             </Button>
           </Box>
         </Box>
+        {editing && (
+          <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor={ACCENT} paddingX={1}>
+            <Text>
+              <Text bold color={ACCENT}>Layout</Text>
+              <Text dimColor>{cols >= 34 ? '  ● shown · ○ hidden · ↑↓ move' : ''}</Text>
+            </Text>
+            {editable.map((id, i) => {
+              const shown = !userHidden.includes(id)
+              return (
+                <Box key={`lay-${id}`} flexDirection="row">
+                  <Button key={`lay-v-${id}`} plain onPress={() => void toggleHidden($, id)}>
+                    <Text color={shown ? GREEN : undefined} dimColor={!shown}>{shown ? '● ' : '○ '}</Text>
+                  </Button>
+                  <Box flexGrow={1} flexShrink={1}>
+                    <Button key={`lay-n-${id}`} plain onPress={() => void toggleHidden($, id)}>
+                      <Text dimColor={!shown} wrap="truncate-end">{sectionTitle(id)}</Text>
+                    </Button>
+                  </Box>
+                  <Box width={2} flexShrink={0}>
+                    {i > 0 && (
+                      <Button key={`lay-u-${id}`} plain onPress={() => void moveSection($, id, -1)}>
+                        <Text color={BLUE}>↑</Text>
+                      </Button>
+                    )}
+                  </Box>
+                  <Box width={1} flexShrink={0}>
+                    {i < editable.length - 1 && (
+                      <Button key={`lay-d-${id}`} plain onPress={() => void moveSection($, id, 1)}>
+                        <Text color={BLUE}>↓</Text>
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+              )
+            })}
+            <Box flexDirection="row" columnGap={2} marginTop={1}>
+              <Button key="lay-reset" plain onPress={() => void resetLayout($)}>
+                <Text color={BLUE}>↺ reset</Text>
+              </Button>
+              <Button key="lay-done" plain onPress={() => void update($, layoutA, () => false)}>
+                <Text color={GREEN}>✓ done</Text>
+              </Button>
+            </Box>
+          </Box>
+        )}
         {section('dove', 'Where you are', ACCENT, undefined,
           <Box flexDirection="column">
             <Box flexDirection="row">
@@ -4537,6 +4656,8 @@ export const register: Register = (on, options) => {
           </Box>,
         )}
 
+        {/* the sections built above, in the order chosen in the layout editor */}
+        {order.filter(id => built.has(id)).map(id => built.get(id)!)}
         {/* footer, as OpenCode's: which Claude Code, pinned to the bottom by the spacer */}
         <Box flexGrow={1} />
         <Box flexDirection="column" marginTop={1}>
