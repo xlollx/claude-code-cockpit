@@ -168,6 +168,7 @@ Runs **you** requested in the last 24 hours, however they were started: portal, 
 
 - By default only the runs that need attention: **◐ running or queued**, **‖ waiting for approval**, **✗ failed**. `pipelinesShow: all` shows every run, finished ones included (✓ succeeded, ! partially succeeded, ⊘ cancelled).
 - At most 4 runs (`pipelinesMax`), each with name, run number, branch and age.
+- `✕` next to a finished run takes it off the panel, `✕ clear finished` takes them all; running runs stay until they end. Cleared runs stay gone in the next sessions (this only hides them in the panel, nothing changes in Azure DevOps).
 - Refreshed every minute.
 - Watched projects: the current repo's (when its remote is on Azure DevOps), any project named in a command you run, and those listed in `adoProjects`.
 - **Display only**: the mod sends GET requests and never starts, cancels or approves anything.

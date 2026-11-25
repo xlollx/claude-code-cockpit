@@ -48,7 +48,7 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 - [x] `/newstyle on|off`.
 - [x] Panel sections in the order you choose, shown or hidden from the `⚙ layout` editor, with a compact/normal/airy density.
 - [x] Search in the session's messages from the panel, with jump to the message.
-- [x] Azure DevOps pipeline runs requested by you, with pending approvals (read-only).
+- [x] Azure DevOps pipeline runs requested by you, with pending approvals (read-only); finished runs can be cleared from the panel.
 - [x] Active modes also follow modes asked for in words ("adhd mode on").
 - [x] `Paste image` quick action (Windows tested; macOS/Linux to be tested).
 - [x] `Handover` quick action: hand-off note, then `/clear` and resume here, or a new session in a new tab.

@@ -42,6 +42,7 @@ const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: '
 const orderA = atom({ plugin: 'cockpit', key: 'order' } as const, [] as string[], { shape: 'order-1' })
 const hiddenA = atom({ plugin: 'cockpit', key: 'hidden' } as const, [] as string[], { shape: 'hidden-1' })
 const layoutA = atom({ plugin: 'cockpit', key: 'layout' } as const, false, { shape: 'layout-1' })
+const pipesCleared = atom({ plugin: 'cockpit', key: 'pipesCleared' } as const, [] as string[], { shape: 'pipesCleared-1' })
 const densityA = atom({ plugin: 'cockpit', key: 'density' } as const, 'normal' as Density, { shape: 'density-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 const handoverA = atom({ plugin: 'cockpit', key: 'handover' } as const, 'idle' as HandoverPhase, { shape: 'handover-1' })
@@ -165,6 +166,18 @@ const SPACING: Record<Density, { pad: number; open: number; closed: number; head
 async function setDensity($: EngineInterface, d: Density) {
   await update($, densityA, () => d)
   await $.store.set('density', d)
+}
+
+// Pipelines: finished runs taken off the panel (✕ on a row, or "clear finished"); kept in $.store,
+// the newest 100 ids, so a cleared run stays gone in the next sessions too
+const runKey = (r: PipelineRun) => `${r.project}#${r.id}`
+const isDone = (r: PipelineRun) => r.status === 'completed' || r.status === 'error'
+
+async function clearRuns($: EngineInterface, keys: readonly string[]) {
+  const cur = await read($, pipesCleared)
+  const next = [...keys, ...cur.filter(k => !keys.includes(k))].slice(0, 100)
+  await update($, pipesCleared, () => next)
+  await $.store.set('pipesCleared', next)
 }
 
 async function resetLayout($: EngineInterface) {
@@ -3201,6 +3214,8 @@ async function restoreSaved($: EngineInterface) {
   await update($, orderA, () => (Array.isArray(savedOrder) ? savedOrder : []))
   const savedHidden = (await $.store.get('hidden')) as string[] | undefined
   await update($, hiddenA, () => (Array.isArray(savedHidden) ? savedHidden : []))
+  const savedCleared = (await $.store.get('pipesCleared')) as string[] | undefined
+  await update($, pipesCleared, () => (Array.isArray(savedCleared) ? savedCleared : []))
   const savedDensity = (await $.store.get('density')) as Density | undefined
   await update($, densityA, () => (savedDensity !== undefined && DENSITIES.includes(savedDensity) ? savedDensity : 'normal'))
   await restoreAuto($)
@@ -3954,7 +3969,12 @@ export const register: Register = (on, options) => {
     const target = await read($, peerTo)
     const targetPeer = others.find(x => x.sessionId === target)
     // by default only what needs an eye: running, queued, waiting for approval, failed
-    const pl = (await read($, pipes)).filter(r => PIPES_ALL || r.status !== 'completed' || r.result === 'failed').slice(0, PIPES_MAX)
+    const cleared = await read($, pipesCleared)
+    const pl = (await read($, pipes))
+      .filter(r => !cleared.includes(runKey(r)))
+      .filter(r => PIPES_ALL || r.status !== 'completed' || r.result === 'failed')
+      .slice(0, PIPES_MAX)
+    const plDone = pl.filter(isDone)
     const prodAz = isProd(w.azSub)
     const prodKube = isProd(w.kube)
     const prodGit = w.branch === 'main' || w.branch === 'master'
@@ -4595,18 +4615,37 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column">
               {pl.map(r => {
                 if (r.status === 'error') {
-                  return <Text dimColor>{cut(`${r.project}: ${r.error}`, cols)}</Text>
+                  return (
+                    <Box key={`pipe-${runKey(r)}`} flexDirection="row">
+                      <Box flexGrow={1} flexShrink={1}>
+                        <Text dimColor wrap="truncate-end">{`${r.project}: ${r.error}`}</Text>
+                      </Box>
+                      <Button key={`pipe-x-${runKey(r)}`} plain onPress={() => void clearRuns($, [runKey(r)])}>
+                        <Text dimColor> ✕</Text>
+                      </Button>
+                    </Box>
+                  )
                 }
                 const icon = r.approval ? '‖' : r.status === 'inProgress' ? '◐' : r.status === 'notStarted' ? '…' : r.result === 'succeeded' ? '✓' : r.result === 'failed' ? '✗' : r.result === 'partiallySucceeded' ? '!' : '⊘'
                 const tone = r.approval || r.status === 'inProgress' ? 'warning' : r.result === 'succeeded' ? 'success' : r.result === 'failed' ? 'error' : r.result === 'partiallySucceeded' ? 'warning' : undefined
                 const ago = since(now - (r.finished || r.queued))
                 return (
-                  <Box flexDirection="column">
-                    <Text>
-                      <Text color={tone}>{icon} </Text>
-                      {cut(r.name, cols - 12)}
-                      <Text dimColor> #{r.id}</Text>
-                    </Text>
+                  <Box key={`pipe-${runKey(r)}`} flexDirection="column">
+                    <Box flexDirection="row">
+                      <Box flexGrow={1} flexShrink={1}>
+                        <Text>
+                          <Text color={tone}>{icon} </Text>
+                          {cut(r.name, cols - 15)}
+                          <Text dimColor> #{r.id}</Text>
+                        </Text>
+                      </Box>
+                      {/* only a finished run can be cleared: a running one stays until it ends */}
+                      {isDone(r) && (
+                        <Button key={`pipe-x-${runKey(r)}`} plain onPress={() => void clearRuns($, [runKey(r)])}>
+                          <Text dimColor> ✕</Text>
+                        </Button>
+                      )}
+                    </Box>
                     <Text dimColor>
                       {'  '}
                       {r.approval ? 'waiting for approval · ' : ''}
@@ -4615,6 +4654,11 @@ export const register: Register = (on, options) => {
                   </Box>
                 )
               })}
+              {plDone.length > 1 && (
+                <Button key="pipe-clear" plain onPress={() => void clearRuns($, plDone.map(runKey))}>
+                  <Text color={BLUE}>✕ clear finished</Text>
+                </Button>
+              )}
             </Box>,
           )}
 

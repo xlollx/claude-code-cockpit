@@ -108,6 +108,8 @@ declare module 'claude-code' {
       hidden: Shaped<string[]>
       /** the layout editor is open */
       layout: Shaped<boolean>
+      /** finished pipeline runs cleared from the panel, "<project>#<id>" (session copy of $.store) */
+      pipesCleared: Shaped<string[]>
       /** room around the panel text: compact, normal or airy (session copy of $.store) */
       density: Shaped<'compact' | 'normal' | 'airy'>
       /** "mode" skills turned on in this session (e.g. "i-have-adhd", "ponytail full") */
