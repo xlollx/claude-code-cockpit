@@ -108,6 +108,8 @@ declare module 'claude-code' {
       hidden: Shaped<string[]>
       /** the layout editor is open */
       layout: Shaped<boolean>
+      /** room around the panel text: compact, normal or airy (session copy of $.store) */
+      density: Shaped<'compact' | 'normal' | 'airy'>
       /** "mode" skills turned on in this session (e.g. "i-have-adhd", "ponytail full") */
       modes: Shaped<string[]>
       /** models shown in "Modello": known aliases + families seen in use or in agents */

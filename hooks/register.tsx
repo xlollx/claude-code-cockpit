@@ -42,6 +42,7 @@ const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: '
 const orderA = atom({ plugin: 'cockpit', key: 'order' } as const, [] as string[], { shape: 'order-1' })
 const hiddenA = atom({ plugin: 'cockpit', key: 'hidden' } as const, [] as string[], { shape: 'hidden-1' })
 const layoutA = atom({ plugin: 'cockpit', key: 'layout' } as const, false, { shape: 'layout-1' })
+const densityA = atom({ plugin: 'cockpit', key: 'density' } as const, 'normal' as Density, { shape: 'density-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 const handoverA = atom({ plugin: 'cockpit', key: 'handover' } as const, 'idle' as HandoverPhase, { shape: 'handover-1' })
 const agentsA = atom({ plugin: 'cockpit', key: 'agents' } as const, [] as AgentId[], { shape: 'agents-1' })
@@ -149,6 +150,21 @@ async function toggleHidden($: EngineInterface, id: string) {
   const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
   await update($, hiddenA, () => next)
   await $.store.set('hidden', next)
+}
+
+// Density of the panel: the terminal has one font size, so what changes is the room around
+// the text: side padding and the blank lines between sections
+type Density = 'compact' | 'normal' | 'airy'
+const DENSITIES: readonly Density[] = ['compact', 'normal', 'airy']
+const SPACING: Record<Density, { pad: number; open: number; closed: number; head: number }> = {
+  compact: { pad: 1, open: 0, closed: 0, head: 0 },
+  normal: { pad: 2, open: 1, closed: 0, head: 1 },
+  airy: { pad: 2, open: 2, closed: 1, head: 2 },
+}
+
+async function setDensity($: EngineInterface, d: Density) {
+  await update($, densityA, () => d)
+  await $.store.set('density', d)
 }
 
 async function resetLayout($: EngineInterface) {
@@ -3185,6 +3201,8 @@ async function restoreSaved($: EngineInterface) {
   await update($, orderA, () => (Array.isArray(savedOrder) ? savedOrder : []))
   const savedHidden = (await $.store.get('hidden')) as string[] | undefined
   await update($, hiddenA, () => (Array.isArray(savedHidden) ? savedHidden : []))
+  const savedDensity = (await $.store.get('density')) as Density | undefined
+  await update($, densityA, () => (savedDensity !== undefined && DENSITIES.includes(savedDensity) ? savedDensity : 'normal'))
   await restoreAuto($)
   if ((await read($, agentsA)).length === 0) {
     await detectAgents($).catch(() => undefined)
@@ -3896,9 +3914,11 @@ export const register: Register = (on, options) => {
     const list = await read($, files)
     const act = await read($, modes)
     const ns = await read($, enabled)
-    // usable cells: the pane's own body (not the transcript's width) minus our padding (2 + 2)
+    const density = await read($, densityA)
+    const sp = SPACING[density] ?? SPACING.normal
+    // usable cells: the pane's own body (not the transcript's width) minus our padding on both sides
     // (one more cell kept free: a line exactly as wide as the body wraps in the terminal)
-    const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 5)
+    const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 2 * sp.pad - 1)
     const narrow = cols < 36
     const barW = Math.max(6, Math.min(28, cols - 10))
     const tone = (p: number) => (p >= 80 ? 'error' : p >= 60 ? 'warning' : 'success')
@@ -3965,7 +3985,7 @@ export const register: Register = (on, options) => {
 
       built.set(id, (
         // folded sections stack without a blank line between them
-        <Box key={`blk-${id}`} flexDirection="column" marginBottom={isClosed ? 0 : 1}>
+        <Box key={`blk-${id}`} flexDirection="column" marginBottom={isClosed ? sp.closed : sp.open}>
           <Box flexDirection="row">
             <Button key={`sec-${id}`} plain onPress={() => void toggleSection($, id)}>
               <Text bold color={isClosed ? undefined : color} dimColor={isClosed}>
@@ -3996,9 +4016,9 @@ export const register: Register = (on, options) => {
     return (
       // at least as tall as the panel, so the footer sits on its bottom edge when the
       // sections are short (when they are longer it follows them)
-      <Box flexDirection="column" paddingLeft={2} paddingRight={2} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
+      <Box flexDirection="column" paddingLeft={sp.pad} paddingRight={sp.pad} minHeight={Math.max(1, e.props.scroll.bodyRows)}>
         {/* next to the panel's ✕: shrink the panel to a narrow summary */}
-        <Box flexDirection="row" justifyContent="space-between" marginBottom={1} backgroundColor={BAND_BG} paddingX={1}>
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={sp.head} backgroundColor={BAND_BG} paddingX={1}>
           <Text>
             <Text color={ACCENT} bold>◆ cockpit</Text>
           </Text>
@@ -4050,6 +4070,14 @@ export const register: Register = (on, options) => {
                 </Box>
               )
             })}
+            <Box flexDirection="row" columnGap={1} marginTop={1} flexWrap="wrap">
+              <Text dimColor>density</Text>
+              {DENSITIES.map(d => (
+                <Button key={`lay-dens-${d}`} plain onPress={() => void setDensity($, d)}>
+                  <Text color={d === density ? ACCENT : BLUE} bold={d === density}>{d}</Text>
+                </Button>
+              ))}
+            </Box>
             <Box flexDirection="row" columnGap={2} marginTop={1}>
               <Button key="lay-reset" plain onPress={() => void resetLayout($)}>
                 <Text color={BLUE}>↺ reset</Text>

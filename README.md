@@ -95,7 +95,7 @@ The panel sits on the right of the chat when the terminal is wide enough (about 
 - **`↻`**, at the top, refreshes every section at once (folder, Azure, kubectl, git, context, reminders, sessions, pull request, pipelines) instead of waiting for its timer; it shows `◌` while the answers come in. The compact bar has it too.
 - The panel opens at once with what is already known and fills in as the answers arrive: a slow GitHub or Azure DevOps lookup never delays it.
 - Sections with nothing to show (no PR, no pipelines, no reminders) stay hidden.
-- **`⚙ layout`**, at the top, opens the layout editor: `●`/`○` shows or hides a section, `↑`/`↓` moves it, `↺ reset` goes back to the default order, `✓ done` closes the editor. Order and hidden sections are remembered across sessions.
+- **`⚙ layout`**, at the top, opens the layout editor: `●`/`○` shows or hides a section, `↑`/`↓` moves it, `↺ reset` goes back to the default order, `density` (compact, normal, airy) sets the room around the text: side padding and blank lines between sections, since a terminal has a single font size; `✓ done` closes the editor. Order, hidden sections and density are remembered across sessions.
 
   ![The layout editor: show, hide and move the panel sections](docs/layout.png)
 
