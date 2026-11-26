@@ -115,6 +115,8 @@ declare module 'claude-code' {
       pipesCleared: Shaped<string[]>
       /** room around the panel text: compact, normal or airy (session copy of $.store) */
       density: Shaped<'compact' | 'normal' | 'airy'>
+      /** files whose paths are in a prompt: left alone, copied or moved into the attachments folder */
+      attachMode: Shaped<'off' | 'copy' | 'move'>
       /** "mode" skills turned on in this session (e.g. "i-have-adhd", "ponytail full") */
       modes: Shaped<string[]>
       /** models shown in "Modello": known aliases + families seen in use or in agents */

@@ -49,6 +49,7 @@ const orderA = atom({ plugin: 'cockpit', key: 'order' } as const, [] as string[]
 const hiddenA = atom({ plugin: 'cockpit', key: 'hidden' } as const, [] as string[], { shape: 'hidden-1' })
 const layoutA = atom({ plugin: 'cockpit', key: 'layout' } as const, false, { shape: 'layout-1' })
 const pipesCleared = atom({ plugin: 'cockpit', key: 'pipesCleared' } as const, [] as string[], { shape: 'pipesCleared-1' })
+const attachA = atom({ plugin: 'cockpit', key: 'attachMode' } as const, 'off' as 'off' | 'copy' | 'move', { shape: 'attachMode-1' })
 const densityA = atom({ plugin: 'cockpit', key: 'density' } as const, 'normal' as Density, { shape: 'density-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
 const handoverA = atom({ plugin: 'cockpit', key: 'handover' } as const, 'idle' as HandoverPhase, { shape: 'handover-1' })
@@ -167,6 +168,91 @@ const SPACING: Record<Density, { pad: number; open: number; closed: number; head
   compact: { pad: 1, open: 0, closed: 0, head: 0 },
   normal: { pad: 2, open: 1, closed: 0, head: 1 },
   airy: { pad: 2, open: 2, closed: 1, head: 2 },
+}
+
+// Attachments: files whose paths are in a prompt (a screenshot from Downloads, a PDF dragged in)
+// are copied or moved into <project>/<attachmentsFolder> and the prompt points to the new path,
+// so what the conversation used stays with the project. Only existing files outside the project
+let ATTACH_DIR = 'attachments'
+const ATTACH_MODES = ['off', 'copy', 'move'] as const
+async function setAttachDir($: EngineInterface, raw: string) {
+  const v = raw.trim() === '' ? 'attachments' : raw.trim()
+  if (!/^[\w .-]{1,60}$/.test(v) || /^\.+$/.test(v)) {
+    $.ui.toast('Folder name: letters, digits, spaces, dot, dash and underscore only (one folder, no path)')
+    return
+  }
+  const r = await $.config.set({ key: 'cockpit.attachmentsFolder', value: v }).catch((err: unknown) => ({ deny: String(err) }))
+  if ('deny' in r && r.deny !== undefined) {
+    $.ui.toast(`Folder not saved: ${String(r.deny).slice(0, 120)}`)
+    return
+  }
+  applyOptions({ ...OPTIONS, attachmentsFolder: v })
+  $.ui.invalidate('ui.render')
+  $.ui.toast(`Attachments folder: ${v}`)
+}
+
+async function setAttachMode($: EngineInterface, m: 'off' | 'copy' | 'move') {
+  await update($, attachA, () => m)
+  await $.store.set('attachMode', m)
+}
+
+// absolute paths in the text: Windows (C:\...) or POSIX (/..., ~/...), plain or in quotes (as
+// Windows Terminal pastes a dragged file whose path has spaces); each with a file extension
+const PATH_RX = /"([A-Za-z]:\\[^"\r\n]+|~?\/[^"\r\n]+)"|'([A-Za-z]:\\[^'\r\n]+|~?\/[^'\r\n]+)'|((?:[A-Za-z]:\\|~\/|\/)[^\s"'<>|*?]+\.[A-Za-z0-9]{1,8})(?=[\s,;:)]|$)/g
+
+async function attachFiles($: EngineInterface, text: string, mode: 'copy' | 'move'): Promise<string> {
+  const cwd = (await $.session.cwd()).replace(/[\\/]+$/, '')
+  const win = (await platform($)) === 'windows'
+  const sep = win ? '\\' : '/'
+  const homeDir = await home($)
+  const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
+  const dir = `${cwd}${sep}${ATTACH_DIR}`
+  let out = text
+  const done: string[] = []
+  for (const m of text.matchAll(PATH_RX)) {
+    const shown = m[0]
+    const raw = (m[1] ?? m[2] ?? m[3] ?? '').trim()
+    const src = raw.startsWith('~/') ? `${homeDir}${raw.slice(1)}` : raw
+    if (src === '' || norm(src).startsWith(`${norm(cwd)}/`)) {
+      continue // already in the project
+    }
+    const st = await $.fs.stat(src).catch(() => undefined)
+    if (st === undefined || st.kind !== 'file') {
+      continue
+    }
+    const name = src.replace(/^.*[\\/]/, '')
+    const dot = name.lastIndexOf('.')
+    const [base, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, '']
+    let dst = `${dir}${sep}${name}`
+    for (let i = 1; (await $.fs.exists(dst)) && i < 100; i++) {
+      dst = `${dir}${sep}${base}-${i}${ext}`
+    }
+    try {
+      if (win) {
+        const verb = mode === 'move' ? 'Move-Item' : 'Copy-Item'
+        const r = await encodedPs($, `New-Item -ItemType Directory -Force -Path ${psQuote(dir)} | Out-Null; ${verb} -LiteralPath ${psQuote(src)} -Destination ${psQuote(dst)}`)
+        if (r.exitCode !== 0) {
+          throw new Error(r.stderr.trim().slice(0, 120))
+        }
+      } else {
+        await $.process.run(['mkdir', '-p', '--', dir], { timeoutMs: 10_000 })
+        const r = await $.process.run([mode === 'move' ? 'mv' : 'cp', '-n', '--', src, dst], { timeoutMs: 60_000 })
+        if (r.exitCode !== 0) {
+          throw new Error(r.stderr.trim().slice(0, 120))
+        }
+      }
+    } catch (err) {
+      $.ui.toast(`Not ${mode === 'move' ? 'moved' : 'copied'}: ${name} (${String(err).slice(0, 80)})`)
+      continue
+    }
+    const rel = `${ATTACH_DIR}${sep}${dst.slice(dir.length + 1)}`
+    out = out.split(shown).join(/\s/.test(rel) ? `"${rel}"` : rel)
+    done.push(rel)
+  }
+  if (done.length > 0) {
+    $.ui.toast(`${done.length === 1 ? done[0] : `${done.length} files`} ${mode === 'move' ? 'moved' : 'copied'} into ${ATTACH_DIR}${sep}`)
+  }
+  return out
 }
 
 async function setDensity($: EngineInterface, d: Density) {
@@ -378,6 +464,7 @@ const HELP: { title: string; tone: HelpTone; items: [string, string][] }[] = [
     ['Paste image', 'saves the clipboard image as a PNG and puts its path in the prompt'],
     ['Copy selection', 'copies the text selected in the chat with its formatting'],
     ['Handover', 'a hand-off note, then go on here cleared, in a new session, or in OpenCode/Antigravity'],
+    ['files →', 'off / copy / move: files named by their path in a prompt go into the project folder set in ⚙ layout (attachments), the prompt pointing there'],
   ] },
   { title: 'Delegation', tone: 'violet', items: [
     ['toggles', 'with OpenCode or Antigravity in PATH: on lets Claude hand off read-only tasks itself; off only when you ask'],
@@ -1223,6 +1310,7 @@ async function setTheme($: EngineInterface, name: string) {
 let OPTIONS: Readonly<Record<string, unknown>> = {}
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   OPTIONS = options
+  ATTACH_DIR = typeof options.attachmentsFolder === 'string' && /^[\w .-]{1,60}$/.test(options.attachmentsFolder.trim()) && !/^\.+$/.test(options.attachmentsFolder.trim()) ? options.attachmentsFolder.trim() : 'attachments'
   PALETTE = String(options.palette ?? 'dark') in PALETTES ? String(options.palette ?? 'dark') : 'dark'
   const pal = PALETTES[PALETTE as keyof typeof PALETTES]
   ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, TOOL_BG, TOOL_BAR, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE, BAND_BG, CHIP_ORANGE, CHIP_BLUE, CHIP_VIOLET, CHIP_GREEN, GREEN } = pal)
@@ -3603,6 +3691,8 @@ async function restoreSaved($: EngineInterface) {
   await update($, hiddenA, () => (Array.isArray(savedHidden) ? savedHidden : []))
   const savedCleared = (await $.store.get('pipesCleared')) as string[] | undefined
   await update($, pipesCleared, () => (Array.isArray(savedCleared) ? savedCleared : []))
+  const savedAttach = (await $.store.get('attachMode')) as 'off' | 'copy' | 'move' | undefined
+  await update($, attachA, () => (savedAttach === 'copy' || savedAttach === 'move' ? savedAttach : 'off'))
   const savedDensity = (await $.store.get('density')) as Density | undefined
   await update($, densityA, () => (savedDensity !== undefined && DENSITIES.includes(savedDensity) ? savedDensity : 'normal'))
   await restoreAuto($)
@@ -3776,6 +3866,14 @@ export const register: Register = (on, options) => {
     // stays in the list until a later prompt no longer contains it
     const ultra = /\bultracode\b/.test(t)
     await update($, modes, ms => [...ms.filter(m => m !== 'ultracode'), ...(ultra ? ['ultracode'] : [])])
+    // files named by their path go into the project's attachments folder, the prompt pointing there
+    const attach = await read($, attachA)
+    if (attach !== 'off' && /[\\/]/.test(e.text)) {
+      const text = await attachFiles($, e.text, attach).catch(() => e.text)
+      if (text !== e.text) {
+        return next({ ...e, text })
+      }
+    }
     return next(e)
   })
 
@@ -4396,6 +4494,7 @@ export const register: Register = (on, options) => {
     const running = [...(await read($, agentsRunA)), ...(await read($, bgRunA))]
     const mcpList = await read($, mcpA)
     const localList = await read($, localA)
+    const attachMode = await read($, attachA)
     const askedOpen = await read($, asideOpen)
     const wr = await read($, writes)
     const rem = await read($, reminders)
@@ -4590,6 +4689,13 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>
             <Text dimColor wrap="wrap">{narrow ? 'regex · noprod/nonprod never match' : 'regex, case-insensitive: matching names turn red; noprod and nonprod never match'}</Text>
+            {/* the project folder that files named in a prompt go into (Quick actions: off / copy / move) */}
+            <Box flexDirection="row" marginTop={1}>
+              <Text dimColor>files </Text>
+              <Box flexGrow={1} flexShrink={1} borderStyle="round" borderColor={TURN_RULE} paddingX={1}>
+                <Input key="lay-attach" value={ATTACH_DIR} submitLabel="save" placeholder="attachments" onSubmit={v => void setAttachDir($, v)} />
+              </Box>
+            </Box>
             <Box flexDirection="row" columnGap={2} marginTop={1}>
               <Button key="lay-reset" plain onPress={() => void resetLayout($)}>
                 <Text color={BLUE}>↺ reset</Text>
@@ -4985,6 +5091,7 @@ export const register: Register = (on, options) => {
 
         {section('azioni', 'Quick actions', VIOLET, undefined,
           // chips: plain buttons on a tinted background instead of [ bracketed ] ones
+          <Box flexDirection="column">
           <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
             <Button key="act-compact" plain onPress={() => void runOrFill($, 'compact', '')}>
               <Text backgroundColor={CHIP_ORANGE}><Text color={ACCENT}>{' ⇊ '}</Text>{'Compact '}</Text>
@@ -5046,6 +5153,16 @@ export const register: Register = (on, options) => {
                 <Text backgroundColor={CHIP_ORANGE} color={ACCENT}>{' ◆ Terminal look '}</Text>
               </Button>
             )}
+          </Box>
+          {/* files named by their path in a prompt: left where they are, copied or moved into the project */}
+          <Box flexDirection="row" columnGap={1} flexWrap="wrap" marginTop={1}>
+            <Text dimColor>{narrow ? 'files' : `files → ${ATTACH_DIR}/`}</Text>
+            {ATTACH_MODES.map(m => (
+              <Button key={`act-attach-${m}`} plain onPress={() => void setAttachMode($, m)}>
+                <Text color={m === attachMode ? (m === 'move' ? 'warning' : ACCENT) : BLUE} bold={m === attachMode}>{m}</Text>
+              </Button>
+            ))}
+          </Box>
           </Box>,
         )}
 
