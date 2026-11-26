@@ -35,6 +35,8 @@ const pipes = atom({ plugin: 'cockpit', key: 'pipes' } as const, [] as PipelineR
 const peers = atom({ plugin: 'cockpit', key: 'peers' } as const, [] as Peer[], { shape: 'peers-1' })
 const peerTo = atom({ plugin: 'cockpit', key: 'peerTo' } as const, null as string | null, { shape: 'peerTo-1' })
 const compactA = atom({ plugin: 'cockpit', key: 'compact' } as const, false, { shape: 'compact-1' })
+const tickA = atom({ plugin: 'cockpit', key: 'tick' } as const, 0, { shape: 'tick-1' })
+const cacheA = atom({ plugin: 'cockpit', key: 'cache' } as const, null as { at: number; ttl: number } | null, { shape: 'cache-1' })
 const asides = atom({ plugin: 'cockpit', key: 'asides' } as const, [] as Aside[], { shape: 'asides-1' })
 const asideOpen = atom({ plugin: 'cockpit', key: 'asideOpen' } as const, null as string | null, { shape: 'asideOpen-1' })
 const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as string | null, { shape: 'remOpen-1' })
@@ -3314,6 +3316,14 @@ export const register: Register = (on, options) => {
     $.clock.every(120_000, () => {
       void refreshPr($)
     })
+    // redraw the panel's countdowns (prompt cache) while there is one to show
+    $.clock.every(30_000, () => {
+      void (async () => {
+        if ((await read($, cacheA)) !== null) {
+          await update($, tickA, n => n + 1)
+        }
+      })()
+    })
     $.clock.every(60_000, () => {
       void refreshPipes($)
     })
@@ -3456,8 +3466,20 @@ export const register: Register = (on, options) => {
       const level = String(e.effort)
       await update($, effort, () => level)
     }
+    const at = await $.clock.now()
+    const r = yield* next(e)
+    // The main conversation's prompt cache counts from the request's start. Its lifetime is the one
+    // the response wrote (one hour when any of it was written for an hour); a read keeps the last
+    if (e.agentId === undefined && r.usage !== null) {
+      const u = r.usage
+      const ttl = (u.ephemeral_1h_input_tokens ?? 0) > 0 ? 3600e3 : (u.ephemeral_5m_input_tokens ?? 0) > 0 ? 300e3 : undefined
+      await update($, cacheA, cur => {
+        const keep = ttl ?? cur?.ttl
+        return keep === undefined ? cur : { at, ttl: keep }
+      })
+    }
 
-    return yield* next(e)
+    return r
   })
 
   on('session.measure', async ($, e, next) => {
@@ -3951,6 +3973,8 @@ export const register: Register = (on, options) => {
     const eff = await read($, effort)
     const w = await read($, where)
     const asked = await read($, asides)
+    await read($, tickA)
+    const cache = await read($, cacheA)
     const askedOpen = await read($, asideOpen)
     const wr = await read($, writes)
     const rem = await read($, reminders)
@@ -4496,6 +4520,26 @@ export const register: Register = (on, options) => {
               {kTok(u?.tokens ?? 0)} / {kTok(u?.window)}
               {narrow ? '' : ' tokens'}
             </Text>
+            {/* the prompt cache: while warm the next message re-reads the conversation cheaply,
+                once it expires the whole context is written again (slower, and it counts more) */}
+            {cache !== null &&
+              (() => {
+                const left = cache.at + cache.ttl - now
+                const mins = Math.ceil(left / 60e3)
+                return left > 0 ? (
+                  <Text>
+                    {'    '}
+                    <Text color={left < 60e3 ? 'warning' : 'success'}>●</Text>
+                    <Text dimColor>{narrow ? ` cache ${left < 60e3 ? '<1' : mins}m` : ` cache warm · ${left < 60e3 ? '<1 min' : `~${mins} min`} left`}</Text>
+                  </Text>
+                ) : (
+                  <Text>
+                    {'    '}
+                    <Text color="warning">○</Text>
+                    <Text dimColor>{narrow ? ` cache cold` : ` cache expired ${since(-left)} ago`}</Text>
+                  </Text>
+                )
+              })()}
           </Box>,
         )}
 

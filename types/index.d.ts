@@ -136,6 +136,10 @@ declare module 'claude-code' {
       busy: Shaped<boolean>
       /** id of the reminder shown in full (clicked in the panel) */
       remOpen: Shaped<string | null>
+      /** the main conversation's prompt cache: when its last request went out and how long the cache holds */
+      cache: Shaped<{ at: number; ttl: number } | null>
+      /** a counter the panel reads so time-based lines (cache countdown) redraw every 30 s */
+      tick: Shaped<number>
       /** side questions asked from the panel, newest first (at most 5) */
       asides: Shaped<Aside[]>
       /** id of the side question shown in full (null: the newest) */

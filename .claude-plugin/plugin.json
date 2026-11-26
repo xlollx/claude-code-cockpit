@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "author": {
     "name": "xlollx",

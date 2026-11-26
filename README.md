@@ -162,6 +162,7 @@ Shows which style modes are on, so you never wonder why Claude is answering in a
 - Three aligned bars: the context window in use (`ctx`), and your 5-hour and 7-day usage limits, which turn yellow at 60% and red at 80%.
 - Under the 5-hour and 7-day bars: when the window resets and where the current pace takes it (`resets in 2h 36m · pace 44%`), or, when the pace runs out the limit before the reset, how long is left (`runs out in ~1h 05m`, yellow, red past 80%).
 - The tokens in use (`112k / 1M tokens`).
+- The prompt cache: `● cache warm · ~4 min left` while the next message re-reads the conversation cheaply (yellow in the last minute), `○ cache expired 12 min ago` once it has to be written again, which is slower and counts more toward your limits. The lifetime (5 minutes or 1 hour) is the one Claude Code's own requests report.
 - At 80% a toast suggests `/compact` before a long task.
 
 ### Pipelines (Azure DevOps)
