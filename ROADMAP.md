@@ -7,7 +7,7 @@ Ideas for improvements, worked on in spare time. Rough order: the top section is
 - [x] **English interface**: panel, toasts, buttons, README.
 - [x] **Optional integrations documented**: reminders file, mode skills, production highlight.
 - [x] **Screenshots** in the README: panel, headings and lists, tables, code.
-- [ ] **GIF** of the panel in use and of the two-line bar in a narrow terminal.
+- [x] **GIF** of the panel in use (`docs/demo.gif`, README cover and screenshots of every section).
 - [x] **Configurable options** (plugin `userConfig`): palette, prose width, hidden sections, production pattern, open on start.
 - [x] **Rename the plugin** `sidebar` -> `cockpit` (`/sidebar` kept as an alias).
 - [x] **Copy table on macOS and Linux**: `osascript` on macOS, `wl-copy`/`xclip` on Linux (to be tested on real machines).
