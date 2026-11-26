@@ -5111,14 +5111,17 @@ export const register: Register = (on, options) => {
                       {pace.projected !== undefined && !narrow && <Text dimColor>{` · pace ${pace.projected}%`}</Text>}
                     </Text>
                   )}
+                  {/* the tokens belong to the context meter, right under it */}
+                  {i === 0 && (
+                    <Text dimColor>
+                      {'    '}
+                      {kTok(u?.tokens ?? 0)} / {kTok(u?.window)}
+                      {narrow ? '' : ' tokens'}
+                    </Text>
+                  )}
                 </Box>
               )
             })}
-            <Text dimColor>
-              {'    '}
-              {kTok(u?.tokens ?? 0)} / {kTok(u?.window)}
-              {narrow ? '' : ' tokens'}
-            </Text>
             {/* the prompt cache: while warm the next message re-reads the conversation cheaply,
                 once it expires the whole context is written again (slower, and it counts more) */}
             {cache !== null &&
@@ -5208,11 +5211,12 @@ export const register: Register = (on, options) => {
             )}
           </Box>
           {/* files named by their path in a prompt: left where they are, copied or moved into the project */}
-          <Box flexDirection="row" columnGap={1} flexWrap="wrap" marginTop={1}>
-            <Text dimColor>{narrow ? 'files' : `files → ${ATTACH_DIR}/`}</Text>
+          {/* the same pills as the model and effort rows: the chosen one filled, the others dim */}
+          <Box flexDirection="row" flexWrap="wrap" marginTop={1}>
+            <Text dimColor>{narrow ? 'files ' : `files → ${ATTACH_DIR}/ `}</Text>
             {ATTACH_MODES.map(m => (
               <Button key={`act-attach-${m}`} plain onPress={() => void setAttachMode($, m)}>
-                <Text color={m === attachMode ? (m === 'move' ? 'warning' : ACCENT) : BLUE} bold={m === attachMode}>{m}</Text>
+                <Text color={m === attachMode ? (m === 'move' ? 'warning' : BLUE) : undefined} bold={m === attachMode} inverse={m === attachMode} dimColor={m !== attachMode}>{` ${m} `}</Text>
               </Button>
             ))}
           </Box>
@@ -5229,8 +5233,9 @@ export const register: Register = (on, options) => {
                   <Button key={`dlg-${id}`} plain onPress={() => void toggleAuto($, id)}>
                     <Text>
                       <Text color={isOn ? 'success' : undefined} dimColor={!isOn}>{isOn ? '● ' : '○ '}</Text>
-                      {cut(AGENTS[id].label, cols - 8)}
-                      <Text dimColor>{isOn ? ' on' : ' off'}</Text>
+                      {cut(AGENTS[id].label, cols - 10)}{' '}
+                      {/* a switch: the state in a pill, filled green when on */}
+                      <Text color={isOn ? 'success' : undefined} inverse={isOn} bold={isOn} dimColor={!isOn}>{isOn ? ' on ' : ' off '}</Text>
                     </Text>
                   </Button>
                 )
