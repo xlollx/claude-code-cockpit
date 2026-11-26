@@ -73,7 +73,7 @@ export type PipelineRun = {
 export type HandoverPhase = 'idle' | 'ask' | 'writing' | 'clearing'
 
 /** Another coding agent installed on this machine that can take a handover or a delegated task */
-export type AgentId = 'opencode' | 'antigravity'
+export type AgentId = 'opencode' | 'antigravity' | 'codex' | 'gemini'
 
 /** A task delegated to another agent: running in the background, then done or failed */
 export type DelegateJob = { id: string; to: AgentId; title: string; out: string; at: number; state: 'run' | 'done' | 'error'; ms?: number; note?: string; base?: string; cwd?: string; wait?: boolean; model?: string; write?: boolean; repo?: string; head?: string }

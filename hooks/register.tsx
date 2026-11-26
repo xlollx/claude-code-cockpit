@@ -463,12 +463,12 @@ const HELP: { title: string; tone: HelpTone; items: [string, string][] }[] = [
     ['Copy path', 'copies the current folder\'s path'],
     ['Paste image', 'saves the clipboard image as a PNG and puts its path in the prompt'],
     ['Copy selection', 'copies the text selected in the chat with its formatting'],
-    ['Handover', 'a hand-off note, then go on here cleared, in a new session, or in OpenCode/Antigravity'],
+    ['Handover', 'a hand-off note, then go on here cleared, in a new session, or in OpenCode, Antigravity, Codex or Gemini CLI'],
     ['files →', 'off / copy / move: files named by their path in a prompt go into the project folder set in ⚙ layout (attachments), the prompt pointing there'],
   ] },
   { title: 'Delegation', tone: 'violet', items: [
-    ['toggles', 'with OpenCode or Antigravity in PATH: on lets Claude hand off read-only tasks itself; off only when you ask'],
-    ['models', 'ask for any model OpenCode or agy lists ("delegate this to OpenCode with …"); results in ~/.claude/delegations'],
+    ['toggles', 'with OpenCode, Antigravity, Codex or Gemini CLI in PATH: on lets Claude hand off read-only tasks itself; off only when you ask'],
+    ['models', 'ask for any model the agent knows ("delegate this to Codex with gpt-5.5-codex"); results in ~/.claude/delegations'],
     ['◈ local', 'models on this PC or the private network (Ollama, LM Studio, vLLM; the localModels option), used through OpenCode: the data stays local'],
   ] },
   { title: 'MCP servers', tone: 'blue', items: [
@@ -1755,6 +1755,8 @@ async function openHandoverTab($: EngineInterface, cwd: string, text: string, ti
 const AGENTS: Record<AgentId, { label: string; bin: string }> = {
   opencode: { label: 'OpenCode', bin: 'opencode' },
   antigravity: { label: 'Antigravity', bin: 'agy' },
+  codex: { label: 'Codex', bin: 'codex' },
+  gemini: { label: 'Gemini CLI', bin: 'gemini' },
 }
 const AGENT_IDS = Object.keys(AGENTS) as AgentId[]
 
@@ -1816,8 +1818,12 @@ async function openAgentTab($: EngineInterface, id: AgentId, cwd: string, path: 
     `Read the handover note at ${path} and continue the work from there. ` +
     'First give me a short summary of where we are and the next step, then wait for my go.'
   const notes = path.slice(0, Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/')))
-  // agy works inside its workspace folders: the notes folder is added to it
-  const args = id === 'opencode' ? ['--prompt', text, cwd] : ['--add-dir', notes, '-i', text]
+  // agy, Codex and Gemini work inside their workspace folders: the notes folder is added to it
+  const args =
+    id === 'opencode' ? ['--prompt', text, cwd]
+    : id === 'codex' ? ['-C', cwd, '--add-dir', notes, text]
+    : id === 'gemini' ? ['--include-directories', notes, '-i', text]
+    : ['--add-dir', notes, '-i', text]
   const exe = (await agentExe($, id)) ?? AGENTS[id].bin
   const label = AGENTS[id].label
   if ((await platform($)) === 'windows' && (await $.env.get('WT_SESSION')) !== undefined) {
@@ -1925,7 +1931,7 @@ async function registerDelegate($: EngineInterface, installed: AgentId[]) {
     description:
       'Delegate a self-contained READ-ONLY task (search, read, summarize, second opinion) to another coding agent ' +
       `installed on this machine (${installed.map(x => `${x} = ${AGENTS[x].label}`).join(', ')}), to save context. ` +
-      'It runs headless in plan mode in the given folder; its Markdown answer is written to a file whose path is ' +
+      'It runs headless and read-only in the given folder; its Markdown answer is written to a file whose path is ' +
       'returned. wait=false (default): returns at once, you are told when it is done. wait=true: waits (up to 10 ' +
       'minutes) and returns the answer. Give the full context in the task: it knows nothing of this conversation. ' +
       'mode "write" (only when the person asked for it): the agent may edit files, in a separate git worktree of the ' +
@@ -1949,13 +1955,20 @@ async function registerDelegate($: EngineInterface, installed: AgentId[]) {
   DELEGATE_REGISTERED = true
 }
 
-// arguments of a headless, read-only run. The task is in a file: OpenCode gets it on stdin,
-// agy reads it from its workspace (the work folder is added), so no length or quoting limits
-// read: OpenCode's plan agent, agy --mode plan. write: OpenCode's build agent, agy
-// --mode accept-edits; neither auto-approves what it would have to ask (headless denies it)
+// arguments of a headless run. The task is in a file: OpenCode, Codex and Gemini get it on stdin,
+// agy reads it from its workspace (the work folder is added), so no length or quoting limits.
+// read: OpenCode's plan agent, agy --mode plan, Codex's read-only sandbox, Gemini's plan mode.
+// write: OpenCode's build agent, agy --mode accept-edits, Codex's workspace-write sandbox (writes
+// only in its folder), Gemini's auto_edit; none auto-approves what it would have to ask
 function delegateArgs(id: AgentId, taskFile: string, workDir: string, title: string, write: boolean, model?: string, archived = true): string[] {
   if (id === 'opencode') {
     return ['run', '--agent', write ? 'build' : 'plan', '--format', 'json', ...(archived ? ['--archived'] : []), '--title', `delegate: ${title}`, ...(model !== undefined ? ['-m', model] : [])]
+  }
+  if (id === 'codex') {
+    return ['exec', '--json', '-s', write ? 'workspace-write' : 'read-only', '--skip-git-repo-check', '--ephemeral', ...(model !== undefined ? ['-m', model] : []), '-']
+  }
+  if (id === 'gemini') {
+    return ['-o', 'json', '--approval-mode', write ? 'auto_edit' : 'plan', '--skip-trust', ...(model !== undefined ? ['-m', model] : []), '-p', 'Do the task given above: it is your whole assignment.']
   }
   return [
     '--mode', write ? 'accept-edits' : 'plan', '--output-format', 'json', '--add-dir', workDir,
@@ -1980,6 +1993,11 @@ async function opencodeArchived($: EngineInterface, exe: string) {
 const MODEL_LISTS: Partial<Record<AgentId, string[]>> = {}
 const MODEL_LISTS_KEY: Partial<Record<AgentId, string>> = {}
 async function resolveModel($: EngineInterface, id: AgentId, exe: string, wanted: string): Promise<{ model?: string; error?: string }> {
+  // Codex and Gemini have no plain list to match against: the name goes as given (an id like
+  // gpt-5.5-codex or gemini-3-pro), and a wrong one comes back as the run's error
+  if (id === 'codex' || id === 'gemini') {
+    return /^[\w.:/-]{1,80}$/.test(wanted) ? { model: wanted } : { error: `give ${AGENTS[id].label} an exact model id (like ${id === 'codex' ? 'gpt-5.5-codex' : 'gemini-3-pro'}), not "${wanted}"` }
+  }
   // the list is kept for the local providers it was read with: when local servers appear (or go)
   // it is read again, so a list fetched before they were found never hides them
   const env = id === 'opencode' ? await opencodeEnv($) : undefined
@@ -2051,6 +2069,41 @@ function delegateAnswer(id: AgentId, out: string): { text: string; tokens?: numb
     // the last text part is the final answer; earlier ones are thinking out loud between tools
     const text = texts.at(-1) ?? ''
     return text.trim() === '' ? { text: '', error: 'no answer in the output' } : { text, tokens }
+  }
+  if (id === 'codex') {
+    // JSONL: item.completed events carry the agent's messages, turn.completed the usage
+    const texts: string[] = []
+    let tokens = 0
+    let failed = ''
+    for (const line of out.split(/\r?\n/)) {
+      try {
+        const ev = JSON.parse(line) as { type?: string; message?: string; item?: { type?: string; text?: string }; usage?: { input_tokens?: number; output_tokens?: number }; error?: { message?: string } }
+        if (ev.type === 'item.completed' && ev.item?.type === 'agent_message' && typeof ev.item.text === 'string') {
+          texts.push(ev.item.text)
+        } else if (ev.type === 'turn.completed') {
+          tokens += (ev.usage?.input_tokens ?? 0) + (ev.usage?.output_tokens ?? 0)
+        } else if (ev.type === 'turn.failed' || ev.type === 'error') {
+          failed = ev.error?.message ?? ev.message ?? 'failed'
+        }
+      } catch {
+        // not a JSON line
+      }
+    }
+    const text = texts.at(-1) ?? ''
+    return text.trim() === '' ? { text: '', error: failed !== '' ? cut(failed, 200) : 'no answer in the output' } : { text, tokens }
+  }
+  if (id === 'gemini') {
+    // one pretty-printed JSON object: response, stats.models.<name>.tokens.total, or error
+    try {
+      const j = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)) as { response?: string; error?: { message?: string }; stats?: { models?: Record<string, { tokens?: { total?: number } }> } }
+      const tokens = Object.values(j.stats?.models ?? {}).reduce((n, m) => n + (m.tokens?.total ?? 0), 0)
+      if ((j.response ?? '').trim() === '') {
+        return { text: '', error: j.error?.message !== undefined ? cut(j.error.message, 200) : 'empty answer' }
+      }
+      return { text: j.response ?? '', tokens: tokens > 0 ? tokens : undefined }
+    } catch {
+      return { text: '', error: 'output is not JSON' }
+    }
   }
   try {
     const j = JSON.parse(out.trim().split(/\r?\n/).pop() ?? '') as { status?: string; response?: string; usage?: { total_tokens?: number }; denied_actions?: { display_name?: string }[] }
@@ -2280,7 +2333,7 @@ async function runDelegate($: EngineInterface, input: { to?: string; task?: stri
   }
   const prompt = (write ? DELEGATE_PREAMBLE_WRITE : DELEGATE_PREAMBLE) + task
   await $.fs.write(taskFile, prompt)
-  await $.fs.write(`${base}.in`, id === 'opencode' ? prompt : '')
+  await $.fs.write(`${base}.in`, id === 'antigravity' ? '' : prompt)
   const job: DelegateJob = {
     id: `${stamp}-${id}`, to: id, title, out, at: now, state: 'run', base, cwd, wait: input.wait === true,
     model, write, repo: space?.repo, head: space?.head,

@@ -1,10 +1,10 @@
-# Delegation: let Claude hand work to OpenCode or Antigravity
+# Delegation: let Claude hand work to OpenCode, Antigravity, Codex or Gemini CLI
 
-Claude's context is precious. Reading fifty files or a long log to answer a short question fills it with material it never needs again. With [OpenCode](opencode.md) or [Antigravity](antigravity.md) installed, Claude can give that work to another agent and read only the answer. Design notes: [ADR-0006](../adr/0006-delegation-detached-processes.md).
+Claude's context is precious. Reading fifty files or a long log to answer a short question fills it with material it never needs again. With [OpenCode](opencode.md), [Antigravity](antigravity.md), [Codex](https://github.com/openai/codex) or [Gemini CLI](https://github.com/google-gemini/gemini-cli) installed, Claude can give that work to another agent and read only the answer. Design notes: [ADR-0006](../adr/0006-delegation-detached-processes.md).
 
 ## Turn it on
 
-The **Delegation** section appears in the panel when `opencode` or `agy` is in `PATH`. It has one toggle per agent:
+The **Delegation** section appears in the panel when `opencode`, `agy`, `codex` or `gemini` is in `PATH`. It has one toggle per agent:
 
 - **on**: Claude may delegate **easy, bulky, read-only** work to that agent on its own, such as searching or reading many files, logs or docs, or a summary;
 - **off**: Claude delegates to that agent only when you ask.
@@ -18,6 +18,7 @@ Say it in your own words. Examples:
 - "delegate to OpenCode: find every place we call the payments API and list file:line";
 - "ask Antigravity for a second opinion on this plan";
 - "delegate this to OpenCode with deepseek v4.1". The name is matched against the agent's model list. If it fits several models, Claude shows the candidates and picks one or asks you.
+- "ask Codex with gpt-5.5-codex to review this module" or "Gemini CLI with gemini-3-pro". Codex and Gemini CLI have no model list to match against, so give the exact id.
 - "have OpenCode write the boilerplate for the five new modules". This is **write mode**, see below.
 
 ## What happens
@@ -28,6 +29,17 @@ Say it in your own words. Examples:
 4. Claude checks what matters before using it: the answers come from a cheaper model.
 
 With `wait: true` Claude waits for the answer in the same call, up to 10 minutes, instead.
+
+## How each agent runs
+
+| Agent | Read-only | Write mode |
+|---|---|---|
+| OpenCode | `opencode run --agent plan` | `--agent build` |
+| Antigravity | `agy --mode plan` | `--mode accept-edits` |
+| Codex | `codex exec -s read-only --ephemeral` | `-s workspace-write` (writes only in its folder) |
+| Gemini CLI | `gemini --approval-mode plan` | `--approval-mode auto_edit` |
+
+None of them auto-approves an action it would have to ask about: headless, it is denied. Cursor's agent is not supported yet: its CLI installs only through a remote script, so the mod does not assume its flags.
 
 ## Local models (Ollama, LM Studio, vLLM)
 
