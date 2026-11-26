@@ -1046,9 +1046,34 @@ let ADO_PROJECTS: string[] = []
 let PIPES_MAX = 4
 let PIPES_ALL = false
 let LOCAL_BASES: string[] = []
+let PALETTE = 'dark'
+const THEMES = ['dark', 'light', 'nord', 'high-contrast', 'colorblind'] as const
 
+// the theme chosen in the layout editor: written to the plugin's palette option, as /config does,
+// so there is one setting; the mod reloads with it and the panel redraws in the new colours
+async function setTheme($: EngineInterface, name: string) {
+  if (name === PALETTE) {
+    return
+  }
+  const r = await $.config.set({ key: 'cockpit.palette', value: name }).catch((err: unknown) => ({ deny: String(err) }))
+  if ('deny' in r && r.deny !== undefined) {
+    $.ui.toast(`Theme not changed: ${String(r.deny).slice(0, 120)}. Set it in /config → cockpit → Palette`)
+    return
+  }
+  // the option takes effect at the mod's next load: apply it now too, so the change shows at once
+  applyOptions({ ...OPTIONS, palette: name })
+  if (!COMPACT) {
+    await openPane($)
+  }
+  $.ui.invalidate('ui.render')
+  $.ui.toast(`Theme: ${name}`)
+}
+
+let OPTIONS: Readonly<Record<string, unknown>> = {}
 function applyOptions(options: Readonly<Record<string, unknown>>) {
-  const pal = PALETTES[String(options.palette) as keyof typeof PALETTES] ?? PALETTES.dark
+  OPTIONS = options
+  PALETTE = String(options.palette ?? 'dark') in PALETTES ? String(options.palette ?? 'dark') : 'dark'
+  const pal = PALETTES[PALETTE as keyof typeof PALETTES]
   ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, TOOL_BG, TOOL_BAR, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE, BAND_BG, CHIP_ORANGE, CHIP_BLUE, CHIP_VIOLET, CHIP_GREEN, GREEN } = pal)
   const width = Number(options.proseWidth)
   // 0 (default) = the whole chat width; 40 or more = wrap reply text at that column
@@ -4386,6 +4411,15 @@ export const register: Register = (on, options) => {
               {DENSITIES.map(d => (
                 <Button key={`lay-dens-${d}`} plain onPress={() => void setDensity($, d)}>
                   <Text color={d === density ? ACCENT : BLUE} bold={d === density}>{d}</Text>
+                </Button>
+              ))}
+            </Box>
+            {/* the palette option, changed here as in /config (the mod reloads with it) */}
+            <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+              <Text dimColor>theme</Text>
+              {THEMES.map(t => (
+                <Button key={`lay-theme-${t}`} plain onPress={() => void setTheme($, t)}>
+                  <Text color={t === PALETTE ? ACCENT : BLUE} bold={t === PALETTE}>{t}</Text>
                 </Button>
               ))}
             </Box>
