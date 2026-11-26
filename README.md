@@ -101,7 +101,8 @@ The panel sits on the right of the chat when the terminal is wide enough (about 
   ![The layout editor: show, hide and move the panel sections](docs/layout.png)
 
 - Hide sections for good with the `hiddenSections` option (they do not show up in the layout editor).
-- At the bottom edge: `● Claude Code <version>` and how long the session has been running, always pinned there while the sections scroll.
+- At the bottom edge: `● Claude Code <version>`, how long the session has been running (dropped first when the panel is narrow) and **`? help`**, always pinned there while the sections scroll.
+- **`? help`** opens the cockpit guide in a pane of its own: a short entry for every section, button, command and option, with a link back to this page. `Esc` or `← back` returns to the panel.
 - **`⇥ compact`**, at the top next to the panel's `✕`, closes the side panel and shows a 2-line summary above the prompt instead (folder, subscription, kubectl context, branch, model and effort, context, running pipelines, writes, reminders, other sessions), so the chat gets the whole width; `⇤ expand` on that bar, or `/cockpit`, brings the side panel back. The choice is remembered across sessions.
 
 ![Compact mode: the side panel gives way to a 2-line summary above the prompt](docs/compact.png)

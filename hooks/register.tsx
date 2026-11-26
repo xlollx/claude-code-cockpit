@@ -328,6 +328,114 @@ async function toggleCompact($: EngineInterface) {
   }
 }
 
+// The guide behind the footer's `? help`. A pane of its own rather than a mode of the panel:
+// the engine shows one pane at a time and keeps the others as tabs, so the guide takes the
+// panel's place in the same dock and closing it (Esc or `← back`) shows the panel again, with
+// its scroll position and open fields untouched. The facts mirror README.md: keep them in step
+const HELP_PANE = 'cockpit-help'
+const HELP_README = 'https://github.com/xlollx/claude-code-cockpit#readme'
+type HelpTone = 'accent' | 'blue' | 'violet' | 'prod'
+const HELP: { title: string; tone: HelpTone; items: [string, string][] }[] = [
+  { title: 'At the top', tone: 'accent', items: [
+    ['↻', 'refreshes every section now instead of waiting for its timer (◌ while answers come in)'],
+    ['⚙ layout', 'shows/hides (●/○) and moves (↑/↓) sections, sets the density; remembered'],
+    ['⇥ compact', 'swaps the panel for a 2-line summary above the prompt; ⇤ expand or /cockpit brings it back'],
+    ['▾ title', 'a click on a section title folds or unfolds it; remembered across sessions'],
+  ] },
+  { title: 'Where you are', tone: 'accent', items: [
+    ['dir az k8s git', 'folder, Azure subscription, kubectl context, branch (●changes ↑to push ↓to pull)'],
+    ['prod', 'a name matching prodPattern turns red, main/master yellow; checked every 30 s'],
+  ] },
+  { title: 'Model', tone: 'blue', items: [
+    ['name', 'opens Claude Code\'s model picker'],
+    ['family', 'one click switches model (Opus, Sonnet, Haiku...)'],
+    ['low … max', 'one click sets the effort'],
+  ] },
+  { title: 'Aside', tone: 'accent', items: [
+    ['question', 'like /btw: answered with the chat in mind, never added to it; the last 5 stay below'],
+  ] },
+  { title: 'Search', tone: 'accent', items: [
+    ['Enter', 'lists every match in the messages, newest first, and highlights it in the chat'],
+    ['hit', 'a click scrolls the chat there; clear removes the search'],
+  ] },
+  { title: 'Sessions', tone: 'blue', items: [
+    ['session', 'other Claude Code sessions on this computer, busy or idle; click one to message it'],
+    ['+ new session here', 'opens one in a new terminal tab, same folder'],
+  ] },
+  { title: 'Active modes', tone: 'violet', items: [
+    ['list', 'newstyle, i-have-adhd, caveman, ponytail, ultracode; ✕ puts the phrase that turns one off in the prompt'],
+    ['+ add', 'turns a mode skill on, or takes any skill name (installed only after you press Install)'],
+  ] },
+  { title: 'Context', tone: 'blue', items: [
+    ['ctx 5h 7d', 'context window and usage limits; yellow at 60%, red at 80%'],
+    ['resets in', 'when the limit resets and the pace, or "runs out in ~" when the pace beats the reset'],
+    ['cache', 'warm with the minutes left, or expired: the next message costs more'],
+  ] },
+  { title: 'Quick actions', tone: 'violet', items: [
+    ['Compact · Context', 'run /compact and /context'],
+    ['Copy path', 'copies the current folder\'s path'],
+    ['Paste image', 'saves the clipboard image as a PNG and puts its path in the prompt'],
+    ['Copy selection', 'copies the text selected in the chat with its formatting'],
+    ['Handover', 'a hand-off note, then go on here cleared, in a new session, or in OpenCode/Antigravity'],
+  ] },
+  { title: 'Delegation', tone: 'violet', items: [
+    ['toggles', 'with OpenCode or Antigravity in PATH: on lets Claude hand off read-only tasks itself; off only when you ask'],
+    ['models', 'ask for any model OpenCode or agy lists ("delegate this to OpenCode with …"); results in ~/.claude/delegations'],
+  ] },
+  { title: 'MCP servers', tone: 'blue', items: [
+    ['● / ○', 'connected servers with their tools (✎ ones that write), and the ones waiting for a /mcp sign-in'],
+  ] },
+  { title: 'Pull request', tone: 'blue', items: [
+    ['PR', 'the open PR of this branch on GitHub or Azure DevOps: reviews and CI; display only'],
+  ] },
+  { title: 'Tasks', tone: 'accent', items: [
+    ['▶ ○ ✓', 'Claude\'s task list: in progress, pending, done'],
+  ] },
+  { title: 'Running', tone: 'violet', items: [
+    ['◆ ▸', 'subagents and background commands, with how long they have run'],
+  ] },
+  { title: 'Pipelines', tone: 'blue', items: [
+    ['◐ ‖ ✗', 'your Azure DevOps runs of the last 24 h that need an eye; ✕ hides a finished one'],
+  ] },
+  { title: 'Write commands', tone: 'prod', items: [
+    ['✓ ✗', 'commands that changed something outside this machine (apply, push, az … create...)'],
+  ] },
+  { title: 'Reminders', tone: 'violet', items: [
+    ['✓ done · +1 day', 'update the reminders file; + add writes a new one (HH:MM title, +2h title...)'],
+  ] },
+  { title: 'Edited files', tone: 'accent', items: [
+    ['×N', 'files Claude edited in this session and how many times'],
+  ] },
+  { title: 'Compact band', tone: 'accent', items: [
+    ['2 lines', 'folder, subscription, context, branch, model, usage, pipelines, writes, reminders'],
+  ] },
+  { title: 'Commands', tone: 'blue', items: [
+    ['/cockpit', 'opens the panel again'],
+    ['/cockpit-update', 'updates the mod'],
+    ['/cockpit-setup', 'applies the recommended Windows Terminal look'],
+    ['/cockpit-uninstall', 'lists what it puts back; add yes to do it'],
+    ['/newstyle off', 'turns the whole look off; on brings it back'],
+  ] },
+  { title: 'Options', tone: 'violet', items: [
+    ['palette', 'dark, light, nord, high-contrast, colorblind'],
+    ['hiddenSections', 'sections to hide for good, comma separated'],
+    ['panelWidth', 'columns of the panel; 0 lets Claude Code decide'],
+    ['prodPattern', 'what counts as production (default prod)'],
+    ['more', 'proseWidth, openOnStart, inlineCodeColor, adoProjects, pipelinesShow, pipelinesMax: in /config'],
+  ] },
+]
+
+const openHelp = ($: EngineInterface) =>
+  $.ui.open({
+    id: HELP_PANE,
+    title: 'Cockpit guide',
+    backgroundColor: PANE_BG,
+    focus: true,
+    closeOnEscape: true,
+    rows: 20,
+    ...(PANEL_COLS > 0 ? { columns: PANEL_COLS } : {}),
+  })
+
 let ACCENT = '#f5a97f'
 // sub-list numbers and dashes: the accent, softer
 let ACCENT_SOFT = '#b88468'
@@ -4110,6 +4218,8 @@ export const register: Register = (on, options) => {
     // (one more cell kept free: a line exactly as wide as the body wraps in the terminal)
     const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 2 * sp.pad - 1)
     const narrow = cols < 36
+    // cells the footer's help chip takes, plus the gap before it
+    const helpW = (narrow ? 3 : 8) + 1
     const barW = Math.max(6, Math.min(28, cols - 10))
     const tone = (p: number) => (p >= 80 ? 'error' : p >= 60 ? 'warning' : 'success')
     // filled part in colour, empty part as a faint track
@@ -5006,13 +5116,62 @@ export const register: Register = (on, options) => {
             <Text>
               <Text color="success">● </Text>
               <Text bold>Claude Code</Text>
-              {CC_VERSION !== '' && <Text dimColor> {CC_VERSION}</Text>}
+              {CC_VERSION !== '' && cols >= 14 + CC_VERSION.length + helpW && <Text dimColor> {CC_VERSION}</Text>}
             </Text>
-            {/* the session time only where it fits beside the version */}
-            {u?.startedAt !== undefined && cols >= 14 + CC_VERSION.length + since(now - u.startedAt).length + 2 && (
-              <Text dimColor>{since(now - u.startedAt)}</Text>
-            )}
+            <Box flexDirection="row" columnGap={1}>
+              {/* the session time only where it fits beside the version and the help chip:
+                  the chip is the one way into the guide, so the time goes first */}
+              {u?.startedAt !== undefined && cols >= 14 + CC_VERSION.length + since(now - u.startedAt).length + 2 + helpW && (
+                <Text dimColor>{since(now - u.startedAt)}</Text>
+              )}
+              <Button key="help" plain onPress={() => void openHelp($)}>
+                {narrow
+                  ? <Text backgroundColor={BAND_BG} color={BLUE}>{' ? '}</Text>
+                  : <Text backgroundColor={BAND_BG}><Text color={BLUE}>{' ? '}</Text>{'help '}</Text>}
+              </Button>
+            </Box>
           </Box>
+        </Box>
+      </Box>
+    )
+  })
+
+  // The guide pane (see HELP): same band, section titles and padding as the panel, so it
+  // reads as the panel's own page
+  on('ui.render', { component: 'Pane', requestId: HELP_PANE }, async ($, e) => {
+    const { Box, Button, Link, Text } = $.ui.resolve(e)
+    const sp = SPACING[await read($, densityA)] ?? SPACING.normal
+    const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 2 * sp.pad - 1)
+    const tones: Record<HelpTone, string> = { accent: ACCENT, blue: BLUE, violet: VIOLET, prod: PROD }
+    return (
+      <Box flexDirection="column" paddingLeft={sp.pad} paddingRight={sp.pad}>
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={sp.head} backgroundColor={BAND_BG} paddingX={1}>
+          <Text color={ACCENT} bold>{cols >= 30 ? '◆ cockpit guide' : '◆ guide'}</Text>
+          <Button key="help-back" plain onPress={() => void $.ui.close({ id: HELP_PANE })}>
+            <Text color={BLUE}>← back</Text>
+          </Button>
+        </Box>
+        <Text dimColor>{cols >= 36 ? 'Esc or ← back returns to the panel.' : 'Esc: back to the panel'}</Text>
+        {HELP.map(s => (
+          <Box key={`help-${s.title}`} flexDirection="column" marginTop={1}>
+            <Text>
+              <Text bold color={tones[s.tone]}>{s.title}</Text>
+              <Text color={TURN_RULE}> {'─'.repeat(Math.max(0, cols - s.title.length - 2))}</Text>
+            </Text>
+            {s.items.map(([k, d]) => (
+              <Text key={`help-${s.title}-${k}`}>
+                <Text color={tones[s.tone]}>{k}</Text>
+                <Text>{'  '}{d}</Text>
+              </Text>
+            ))}
+          </Box>
+        ))}
+        <Box marginTop={1} flexDirection="column">
+          <Text color={TURN_RULE}>{'─'.repeat(Math.max(0, cols - 1))}</Text>
+          <Text>
+            <Text dimColor>All the details: </Text>
+            <Link href={HELP_README}>README on GitHub</Link>
+          </Text>
         </Box>
       </Box>
     )
