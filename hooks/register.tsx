@@ -172,7 +172,9 @@ const SPACING: Record<Density, { pad: number; open: number; closed: number; head
 
 // Attachments: files whose paths are in a prompt (a screenshot from Downloads, a PDF dragged in)
 // are copied or moved into <project>/<attachmentsFolder> and the prompt points to the new path,
-// so what the conversation used stays with the project. Only existing files outside the project
+// so what the conversation used stays with the project. Only existing files outside the project,
+// and only from where attachments arrive (Downloads, the temp folder, Paste image's clips): a path
+// to a config file or to another repository, named in a prompt, is never copied nor moved
 let ATTACH_DIR = 'attachments'
 const ATTACH_MODES = ['off', 'copy', 'move'] as const
 async function setAttachDir($: EngineInterface, raw: string) {
@@ -207,6 +209,10 @@ async function attachFiles($: EngineInterface, text: string, mode: 'copy' | 'mov
   const homeDir = await home($)
   const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
   const dir = `${cwd}${sep}${ATTACH_DIR}`
+  // where attachments arrive: Downloads and the temp folder (Paste image's clips live there too)
+  const inbox = [`${homeDir}/Downloads`, await $.env.get('TEMP'), await $.env.get('TMP'), await $.env.get('TMPDIR'), win ? undefined : '/tmp']
+    .filter((x): x is string => typeof x === 'string' && x !== '')
+    .map(x => norm(x).replace(/\/+$/, ''))
   let out = text
   const done: string[] = []
   for (const m of text.matchAll(PATH_RX)) {
@@ -215,6 +221,9 @@ async function attachFiles($: EngineInterface, text: string, mode: 'copy' | 'mov
     const src = raw.startsWith('~/') ? `${homeDir}${raw.slice(1)}` : raw
     if (src === '' || norm(src).startsWith(`${norm(cwd)}/`)) {
       continue // already in the project
+    }
+    if (!inbox.some(d => norm(src).startsWith(`${d}/`))) {
+      continue // not an attachment: a file elsewhere stays where it is
     }
     const st = await $.fs.stat(src).catch(() => undefined)
     if (st === undefined || st.kind !== 'file') {
@@ -464,7 +473,7 @@ const HELP: { title: string; tone: HelpTone; items: [string, string][] }[] = [
     ['Paste image', 'saves the clipboard image as a PNG and puts its path in the prompt'],
     ['Copy selection', 'copies the text selected in the chat with its formatting'],
     ['Handover', 'a hand-off note, then go on here cleared, in a new session, or in OpenCode, Antigravity, Codex or Gemini CLI'],
-    ['files →', 'off / copy / move: files named by their path in a prompt go into the project folder set in ⚙ layout (attachments), the prompt pointing there'],
+    ['files →', 'off / copy / move: files from Downloads or the temp folder named in a prompt go into the project folder set in ⚙ layout (attachments), the prompt pointing there; files elsewhere stay put'],
   ] },
   { title: 'Delegation', tone: 'violet', items: [
     ['toggles', 'with OpenCode, Antigravity, Codex or Gemini CLI in PATH: on lets Claude hand off read-only tasks itself; off only when you ask'],
