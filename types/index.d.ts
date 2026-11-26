@@ -4,7 +4,7 @@ export type Usage = {
   window?: number
   percent?: number
   usd?: number
-  limits: { kind: string; percentUsed: number }[]
+  limits: { kind: string; percentUsed: number; resetsAt?: string }[]
   /** session start (ms), for the duration */
   startedAt?: number
 }

@@ -265,6 +265,29 @@ async function setEffort($: EngineInterface, level: string) {
   await update($, effort, () => level)
 }
 
+// Where a plan limit is heading: time to its reset and, at the pace of the window so far,
+// the % it ends at or when it runs out first. Nothing until a tenth of the window has passed
+// (too early to say) or for windows of unknown length
+const WINDOW_MS: Record<string, number> = { five_hour: 5 * 3600e3, seven_day: 7 * 86400e3 }
+function limitPace(kind: string, used: number, resetsAt: string | undefined, now: number) {
+  const len = WINDOW_MS[kind]
+  const end = resetsAt === undefined ? NaN : Date.parse(resetsAt)
+  if (len === undefined || !Number.isFinite(end) || end <= now) {
+    return undefined
+  }
+  const left = end - now
+  const passed = len - left
+  const span = (ms: number) => (ms >= 86400e3 ? `${Math.floor(ms / 86400e3)}d ${Math.floor((ms % 86400e3) / 3600e3)}h` : since(ms))
+  const reset = span(left)
+  if (passed < len / 10 || used <= 0) {
+    return { reset }
+  }
+  const rate = used / passed
+  const projected = Math.round(rate * len)
+  const runsOutIn = used >= 100 ? 0 : (100 - used) / rate
+  return runsOutIn < left ? { reset, runsOut: span(runsOutIn) } : { reset, projected }
+}
+
 const since = (ms: number) => {
   const m = Math.floor(ms / 60000)
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`
@@ -1068,7 +1091,7 @@ async function measure($: EngineInterface) {
     window: u.context.window,
     percent: u.context.percent,
     usd: u.cost?.usd,
-    limits: u.rateLimits.map((r: SessionRateLimit) => ({ kind: r.kind, percentUsed: r.percentUsed })),
+    limits: u.rateLimits.map((r: SessionRateLimit) => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
     startedAt: u.startedAt,
   }
   await update($, usage, () => next)
@@ -4444,13 +4467,30 @@ export const register: Register = (on, options) => {
             {([
               ['ctx', pct, pctColor, true],
               ...(u?.limits ?? []).map(l => [l.kind === 'five_hour' ? '5h' : l.kind === 'seven_day' ? '7d' : l.kind, l.percentUsed, tone(l.percentUsed), false]),
-            ] as [string, number, string, boolean][]).map(([name, p, c, strong]) => (
-              <Text>
-                <Text dimColor>{cut(name, 3).padEnd(4)}</Text>
-                {meter(p, barW, c)}
-                <Text color={strong ? c : undefined} bold={strong} dimColor={!strong}>{`${Math.round(p)}%`.padStart(5)}</Text>
-              </Text>
-            ))}
+            ] as [string, number, string, boolean][]).map(([name, p, c, strong], i) => {
+              const lim = i === 0 ? undefined : u?.limits[i - 1]
+              const pace = lim === undefined ? undefined : limitPace(lim.kind, lim.percentUsed, lim.resetsAt, now)
+              return (
+                <Box flexDirection="column">
+                  <Text>
+                    <Text dimColor>{cut(name, 3).padEnd(4)}</Text>
+                    {meter(p, barW, c)}
+                    <Text color={strong ? c : undefined} bold={strong} dimColor={!strong}>{`${Math.round(p)}%`.padStart(5)}</Text>
+                  </Text>
+                  {/* under a plan limit: when it resets and where the current pace takes it */}
+                  {pace !== undefined && (
+                    <Text dimColor={pace.runsOut === undefined}>
+                      {'    '}
+                      <Text dimColor>{narrow ? `↻ ${pace.reset}` : `resets in ${pace.reset}`}</Text>
+                      {pace.runsOut !== undefined && (
+                        <Text color={p >= 80 ? 'error' : 'warning'}>{narrow ? ` · out ~${pace.runsOut}` : ` · runs out in ~${pace.runsOut}`}</Text>
+                      )}
+                      {pace.projected !== undefined && !narrow && <Text dimColor>{` · pace ${pace.projected}%`}</Text>}
+                    </Text>
+                  )}
+                </Box>
+              )
+            })}
             <Text dimColor>
               {'    '}
               {kTok(u?.tokens ?? 0)} / {kTok(u?.window)}
