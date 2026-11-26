@@ -190,6 +190,10 @@ The open pull request of the current branch, on GitHub or Azure DevOps: number, 
 Claude's task list for the session (`TaskCreate`/`TaskUpdate`, or `TodoWrite`): in progress ▶ first, then pending ○, then done ✓, with the done/total count in the title.
 
 
+### MCP servers
+
+The MCP servers whose tools this session has right now, connected (`●`, with how many tools; `✎ N` counts the ones that can change something, when the server marks its read-only tools), and in one dimmed line the ones that wait for a sign-in (`○ 3 need login: …`, sign in with `/mcp`). A plugin's server is shown by its own name, the plugin beside it. Checked again every minute and with `↻`.
+
 ### Running
 
 Shown while something runs beside the conversation: the subagents Claude started (`◆`, with how long they have run and their tokens) and the commands it sent to the background (`▸`, `◉` for a monitor), with their duration. A background command shows up as soon as it starts and goes at the end of the turn that follows its end; a subagent goes when it finishes.

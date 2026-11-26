@@ -147,6 +147,8 @@ declare module 'claude-code' {
       agentsRun: Shaped<RunningItem[]>
       /** background commands, monitors and workflows still running */
       bgRun: Shaped<RunningItem[]>
+      /** MCP servers whose tools the session has now, with how many tools and how many can write */
+      mcpServers: Shaped<{ name: string; plugin?: string; tools: number; writes: number; login: boolean }[]>
       /** side questions asked from the panel, newest first (at most 5) */
       asides: Shaped<Aside[]>
       /** id of the side question shown in full (null: the newest) */

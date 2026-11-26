@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "author": {
     "name": "xlollx",
@@ -35,7 +35,7 @@
     "hiddenSections": {
       "type": "string",
       "title": "Hidden sections",
-      "description": "Panel sections to hide, comma separated: aside, running, search, sessions, pipelines, where, model, modes, context, pr, tasks, actions, delegation, writes, reminders, files",
+      "description": "Panel sections to hide, comma separated: aside, mcp, running, search, sessions, pipelines, where, model, modes, context, pr, tasks, actions, delegation, writes, reminders, files",
       "default": ""
     },
     "prodPattern": {

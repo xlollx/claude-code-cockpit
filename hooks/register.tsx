@@ -37,6 +37,7 @@ const peerTo = atom({ plugin: 'cockpit', key: 'peerTo' } as const, null as strin
 const compactA = atom({ plugin: 'cockpit', key: 'compact' } as const, false, { shape: 'compact-1' })
 const agentsRunA = atom({ plugin: 'cockpit', key: 'agentsRun' } as const, [] as RunningItem[], { shape: 'agentsRun-1' })
 const bgRunA = atom({ plugin: 'cockpit', key: 'bgRun' } as const, [] as RunningItem[], { shape: 'bgRun-1' })
+const mcpA = atom({ plugin: 'cockpit', key: 'mcpServers' } as const, [] as { name: string; plugin?: string; tools: number; writes: number; login: boolean }[], { shape: 'mcpServers-2' })
 const tickA = atom({ plugin: 'cockpit', key: 'tick' } as const, 0, { shape: 'tick-1' })
 const cacheA = atom({ plugin: 'cockpit', key: 'cache' } as const, null as { at: number; ttl: number } | null, { shape: 'cache-1' })
 const asides = atom({ plugin: 'cockpit', key: 'asides' } as const, [] as Aside[], { shape: 'asides-1' })
@@ -113,7 +114,7 @@ async function toggleSection($: EngineInterface, id: string) {
 const SECTIONS: ReadonlyArray<readonly [string, string]> = [
   ['dove', 'Where you are'], ['modello', 'Model'], ['btw', 'Aside'], ['search', 'Search'], ['sessioni', 'Sessions'],
   ['modalita', 'Active modes'], ['contesto', 'Context'], ['azioni', 'Quick actions'], ['delega', 'Delegation'],
-  ['pr', 'Pull request'], ['tasks', 'Tasks'], ['running', 'Running'], ['pipelines', 'Pipelines'], ['scritture', 'Write commands'],
+  ['mcp', 'MCP servers'], ['pr', 'Pull request'], ['tasks', 'Tasks'], ['running', 'Running'], ['pipelines', 'Pipelines'], ['scritture', 'Write commands'],
   ['promemoria', 'Reminders'], ['file', 'Edited files'],
 ]
 const DEFAULT_ORDER = SECTIONS.map(s => s[0])
@@ -1013,7 +1014,7 @@ const PALETTES = {
 
 // option name of a section -> id used for its folded state
 const SECTION_IDS: Record<string, string> = {
-  btw: 'btw', aside: 'btw', running: 'running', search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
+  btw: 'btw', aside: 'btw', running: 'running', mcp: 'mcp', search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
   actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file', sessions: 'sessioni', delegation: 'delega',
 }
 let HIDDEN = new Set<string>()
@@ -2015,7 +2016,7 @@ async function cancelDelegate($: EngineInterface, jobId: string) {
 }
 
 async function refreshAll($: EngineInterface) {
-  await Promise.all([measure($), refreshWhere($), refreshReminders($)])
+  await Promise.all([measure($), refreshWhere($), refreshReminders($), refreshMcp($)])
   await refreshPr($)
 }
 
@@ -2033,6 +2034,7 @@ async function refreshNow($: EngineInterface) {
     refreshWhere($),
     refreshReminders($),
     refreshPeers($),
+    refreshMcp($),
     loadModels($),
     refreshPr($),
     refreshPipes($, true),
@@ -2835,6 +2837,37 @@ async function giveKeysBack($: EngineInterface) {
   await openPane($)
 }
 
+// MCP servers section: the servers whose tools this session has right now (connected, not just
+// configured), read from the tool list by their mcp__<server>__<tool> names; the mod's own left out
+async function refreshMcp($: EngineInterface) {
+  try {
+    const by = new Map<string, { name: string; plugin?: string; tools: number; writes: number; login: boolean }>()
+    // a server that waits for a sign-in offers only these two tools
+    const LOGIN = new Set(['authenticate', 'complete_authentication'])
+    for (const t of await $.tool.list()) {
+      // mcp__<server>__<tool>: the server's name may hold single underscores, never a double one
+      const parts = t.name.split('__')
+      const server = t.mcp && parts[0] === 'mcp' && parts.length >= 3 ? parts[1] : undefined
+      if (server === undefined || server === '' || server === 'cockpit') {
+        continue
+      }
+      // a plugin's server reads plugin_<plugin>_<server>: shown as <server>, the plugin dimmed beside it
+      const p = /^plugin_([^_]+)_(.+)$/.exec(server)
+      const s = by.get(server) ?? { name: p?.[2] ?? server, plugin: p?.[1], tools: 0, writes: 0, login: true }
+      s.tools += 1
+      s.writes += t.isReadOnly === true ? 0 : 1
+      s.login = s.login && LOGIN.has(parts.slice(2).join('__'))
+      by.set(server, s)
+    }
+    const list = [...by.values()].sort((a, b) => Number(a.login) - Number(b.login) || a.name.localeCompare(b.name))
+    if (JSON.stringify(list) !== JSON.stringify(await read($, mcpA))) {
+      await update($, mcpA, () => list)
+    }
+  } catch {
+    /* no tool list on this surface */
+  }
+}
+
 // Running section: the subagents the engine lists as running, waiting or pending
 async function refreshAgents($: EngineInterface) {
   try {
@@ -3308,6 +3341,7 @@ export const register: Register = (on, options) => {
     void detectAgents($).then(() => briefClaude($)).catch(() => undefined)
     // local reads first (files, git); the pull request asks the network, so it does not hold up the start
     await Promise.all([measure($), refreshWhere($), refreshReminders($)])
+    void refreshMcp($)
     void refreshPr($)
     void refreshPipes($, true)
     void refreshPeers($)
@@ -3332,6 +3366,10 @@ export const register: Register = (on, options) => {
     })
     $.clock.every(120_000, () => {
       void refreshPr($)
+    })
+    // a server that connects later (or drops) shows up within a minute
+    $.clock.every(60_000, () => {
+      void refreshMcp($)
     })
     // the Running section's durations and token counts, while something runs
     $.clock.every(10_000, () => {
@@ -4038,6 +4076,7 @@ export const register: Register = (on, options) => {
     await read($, tickA)
     const cache = await read($, cacheA)
     const running = [...(await read($, agentsRunA)), ...(await read($, bgRunA))]
+    const mcpList = await read($, mcpA)
     const askedOpen = await read($, asideOpen)
     const wr = await read($, writes)
     const rem = await read($, reminders)
@@ -4761,6 +4800,40 @@ export const register: Register = (on, options) => {
                 ))}
             </Box>,
           )}
+
+        {mcpList.length > 0 &&
+          (() => {
+            const live = mcpList.filter(m => !m.login)
+            const waiting = mcpList.filter(m => m.login)
+            return section('mcp', 'MCP servers', BLUE, live.length || undefined,
+              <Box flexDirection="column">
+                {/* connected servers: their tools reach the model; the ones that can write are counted apart */}
+                {live.slice(0, 10).map(m => (
+                  <Box key={`mcp-${m.plugin ?? ''}-${m.name}`} flexDirection="row">
+                    <Text color="success">{'● '}</Text>
+                    <Box flexGrow={1} flexShrink={1}>
+                      <Text wrap="truncate-end">
+                        {m.name}
+                        {m.plugin !== undefined && !narrow && <Text dimColor>{` · ${m.plugin}`}</Text>}
+                      </Text>
+                    </Box>
+                    <Text dimColor>{` ${m.tools}${narrow ? '' : ' tools'}`}</Text>
+                    {/* only when the server marks its read-only tools: otherwise every tool would count */}
+                    {m.writes > 0 && m.writes < m.tools && <Text color="warning">{narrow ? ` ✎${m.writes}` : ` · ✎ ${m.writes}`}</Text>}
+                  </Box>
+                ))}
+                {live.length > 10 && <Text dimColor>{`+ ${live.length - 10} more connected`}</Text>}
+                {live.length === 0 && <Text dimColor>none connected</Text>}
+                {/* servers that wait for a sign-in (/mcp): one dim line, they offer no tools yet */}
+                {waiting.length > 0 && (
+                  <Text dimColor wrap="truncate-end">
+                    <Text color="warning">○</Text>
+                    {` ${waiting.length} need login: ${waiting.map(m => m.name).join(', ')}`}
+                  </Text>
+                )}
+              </Box>,
+            )
+          })()}
 
         {running.length > 0 &&
           section('running', 'Running', VIOLET, running.length,
