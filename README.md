@@ -117,7 +117,7 @@ The sections, from top to bottom:
 - **k8s**: the kubectl context and namespace (read from the kubeconfig file).
 - **git**: the branch, `●N` uncommitted changes, `↑N` commits to push and `↓N` to pull.
 
-Production is easy to spot: a subscription, context or branch whose name matches `prodPattern` (default `prod`, never `noprod`/`nonprod`) turns **red**; `main` and `master` turn **yellow**. The section is checked again every 30 seconds, so an `az account set` or `kubectl config use-context` done in another terminal shows up by itself.
+Production is easy to spot: a subscription, context or branch whose name matches `prodPattern` (default `prod`, never `noprod`/`nonprod`) turns **red**; `main` and `master` turn **yellow**. The section is checked again every 30 seconds, so an `az account set` or `kubectl config use-context` done in another terminal shows up by itself. Change the pattern in `⚙ layout` (the `prod` field, e.g. `prod|prd|live`): it applies at once and is saved as the `prodPattern` option.
 
 ### Model
 

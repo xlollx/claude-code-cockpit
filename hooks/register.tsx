@@ -345,7 +345,7 @@ const HELP: { title: string; tone: HelpTone; items: [string, string][] }[] = [
   ] },
   { title: 'Where you are', tone: 'accent', items: [
     ['dir az k8s git', 'folder, Azure subscription, kubectl context, branch (●changes ↑to push ↓to pull)'],
-    ['prod', 'a name matching prodPattern turns red, main/master yellow; checked every 30 s'],
+    ['prod', 'a name matching prodPattern turns red, main/master yellow; change the pattern in ⚙ layout (e.g. prod|prd|live)'],
   ] },
   { title: 'Model', tone: 'blue', items: [
     ['name', 'opens Claude Code\'s model picker'],
@@ -1169,6 +1169,31 @@ async function readCcTheme($: EngineInterface) {
   }
 }
 const darkTerminal = () => CC_THEME.startsWith('dark')
+
+// the production pattern edited in the layout editor: checked, saved as the prodPattern option
+// (as /config does) and applied at once, so the red in Where you are follows without a reload
+async function setProdPattern($: EngineInterface, raw: string) {
+  const v = raw.trim() === '' ? 'prod' : raw.trim()
+  try {
+    // eslint-disable-next-line no-new
+    new RegExp(v, 'i')
+  } catch (err) {
+    $.ui.toast(`Not a valid pattern: ${String(err).slice(0, 100)}`)
+    return
+  }
+  if (v.length > 200) {
+    $.ui.toast('Pattern too long (200 characters at most)')
+    return
+  }
+  const r = await $.config.set({ key: 'cockpit.prodPattern', value: v }).catch((err: unknown) => ({ deny: String(err) }))
+  if ('deny' in r && r.deny !== undefined) {
+    $.ui.toast(`Pattern not saved: ${String(r.deny).slice(0, 120)}`)
+    return
+  }
+  applyOptions({ ...OPTIONS, prodPattern: v })
+  $.ui.invalidate('ui.render')
+  $.ui.toast(`Production pattern: ${v}`)
+}
 
 // the theme chosen in the layout editor: written to the plugin's palette option, as /config does,
 // so there is one setting; the mod reloads with it and the panel redraws in the new colours
@@ -4557,6 +4582,14 @@ export const register: Register = (on, options) => {
                 </Button>
               ))}
             </Box>
+            {/* what marks production (subscription, kubectl context, branch): the prodPattern option */}
+            <Box flexDirection="row" marginTop={1}>
+              <Text dimColor>prod </Text>
+              <Box flexGrow={1} flexShrink={1} borderStyle="round" borderColor={PROD} paddingX={1}>
+                <Input key="lay-prod" value={PROD_RX.source} submitLabel="save" placeholder="regex, e.g. prod|prd|live" onSubmit={v => void setProdPattern($, v)} />
+              </Box>
+            </Box>
+            <Text dimColor wrap="wrap">{narrow ? 'regex · noprod/nonprod never match' : 'regex, case-insensitive: matching names turn red; noprod and nonprod never match'}</Text>
             <Box flexDirection="row" columnGap={2} marginTop={1}>
               <Button key="lay-reset" plain onPress={() => void resetLayout($)}>
                 <Text color={BLUE}>↺ reset</Text>
