@@ -568,7 +568,9 @@ function tableGrid(t: Table, maxW: number): { row: number; cells: string[] }[] |
   return lines
 }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+// quotes too: the escaped text also ends up inside href='...' attributes
+const esc = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 // cell inline markdown -> HTML (bold, code) or plain text (TSV)
 const cellHtml = (s: string) =>
   esc(s)
@@ -952,7 +954,7 @@ function findWrite(cmd: string): string | undefined {
 const MCP_WRITE = /(?:^|_)(apply|delete|patch|scale|create|install|upgrade|uninstall|push|write|upsert|rollout|run|merge|update|set|start|stop|restart|assign)(?:_|$)/i
 
 function mcpWrite(tool: string, input: Record<string, unknown>): string | undefined {
-  const m = /^mcp__([^_]+(?:-[^_]+)*)__(.+)$/.exec(tool)
+  const m = /^mcp__([^_]+)__(.+)$/.exec(tool)
   if (m === null) {
     return undefined
   }
@@ -1504,7 +1506,10 @@ async function openAgentTab($: EngineInterface, id: AgentId, cwd: string, path: 
       return
     }
   }
-  const q = (s: string) => `"${s.replace(/"/g, '\\"')}"`
+  // quoted for the shell the command is pasted into: single quotes on macOS/Linux (nothing inside
+  // is expanded, backslashes included), doubled double quotes on Windows
+  const win = (await platform($)) === 'windows'
+  const q = (s: string) => (win ? `"${s.replace(/"/g, '""')}"` : `'${s.replace(/'/g, `'\\''`)}'`)
   const cmd = `cd ${q(cwd)} && ${AGENTS[id].bin} ${args.map(q).join(' ')}`
   const r = await $.ui.copy({ text: cmd })
   $.ui.toast(r.isCopied ? `Handover written: ${label} command copied, paste it into a new terminal` : `Handover written: run ${cmd}`)
