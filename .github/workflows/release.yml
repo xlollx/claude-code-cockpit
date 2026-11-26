@@ -1,0 +1,27 @@
+# A tag v* (for example v0.28.0) publishes a GitHub release: the tag's message as the notes,
+# followed by the list of changes since the previous release.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check the tag matches plugin.json
+        run: |
+          v=$(node -p "require('./.claude-plugin/plugin.json').version")
+          test "v$v" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, plugin.json $v"; exit 1; }
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "Cockpit $GITHUB_REF_NAME" --notes-from-tag --generate-notes --verify-tag
