@@ -1,6 +1,7 @@
 {
   "name": "cockpit",
-  "version": "0.40.0",
+  "displayName": "Cockpit",
+  "version": "0.40.1",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "author": {
     "name": "xlollx",
@@ -93,5 +94,13 @@
       "description": "Folder of the project that files named by their path in a prompt are copied or moved into, when Attachments is set to copy or move in the panel",
       "default": "attachments"
     }
+  },
+  "network": {
+    "hosts": [
+      "api.github.com",
+      "dev.azure.com",
+      "localhost:11434",
+      "localhost:1234"
+    ]
   }
 }
