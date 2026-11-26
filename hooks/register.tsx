@@ -1930,6 +1930,9 @@ async function toggleAuto($: EngineInterface, id: AgentId) {
 }
 
 let DELEGATE_REGISTERED = false
+// when the last classic Stop arrived, and whether it seems taken by another hook (see turn.complete)
+let STOP_AT = 0
+let CLASSIC_STOP_OFF = false
 async function registerDelegate($: EngineInterface, installed: AgentId[]) {
   if (DELEGATE_REGISTERED) {
     return
@@ -3964,6 +3967,17 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) {
       return r
     }
+    // an answered turn without a classic Stop near it: that hook is taken by another one (a managed
+    // settings hook), so finished background commands would never leave the list; they are hidden
+    if (e.reason === 'answer') {
+      const at = await $.clock.now()
+      $.clock.after(5000, () => {
+        if (STOP_AT < at - 5000 && !CLASSIC_STOP_OFF) {
+          CLASSIC_STOP_OFF = true
+          void update($, bgRunA, () => [])
+        }
+      })
+    }
     const h = await getJob($)
     if (h === null) {
       return r
@@ -4042,20 +4056,25 @@ export const register: Register = (on, options) => {
     void refreshAgents($)
     return next(e)
   })
-  // a command sent to the background shows up as soon as it starts...
-  on('classic.PostToolUse', async ($, e, next) => {
-    const input = (e.tool_input ?? {}) as { run_in_background?: unknown; command?: unknown; description?: unknown }
-    if (e.tool_name === 'Bash' && input.run_in_background === true && typeof input.command === 'string') {
+  // a command sent to the background shows up as soon as it starts. Read from tool.run, not the
+  // classic PostToolUse hook: a managed (company) settings hook can answer classic events first
+  // and end their chain, and then a module's classic hook never runs
+  on('tool.run', { tool: 'Bash' }, async ($, e, next) => {
+    const r = await next(e)
+    const input = e as unknown as { run_in_background?: unknown; command?: unknown; description?: unknown }
+    if (!CLASSIC_STOP_OFF && input.run_in_background === true && typeof input.command === 'string') {
       const label = typeof input.description === 'string' && input.description !== '' ? input.description : input.command
       const start = await $.clock.now()
       const id = `pending-${start}`
       await update($, bgRunA, list => [...list, { id, kind: 'shell', label, start }])
     }
-    return next(e)
+    return r
   })
   // ...and at the end of every turn the engine's own list of background work replaces ours, so
   // finished ones go (start times are kept for the ones still there, matched by their text)
   on('classic.Stop', async ($, e, next) => {
+    STOP_AT = await $.clock.now()
+    CLASSIC_STOP_OFF = false
     const tasks = (e.background_tasks ?? []).filter(t => t.type !== 'subagent' && t.type !== 'local_agent')
     const now = await $.clock.now()
     await update($, bgRunA, prev =>

@@ -198,6 +198,9 @@ The MCP servers whose tools this session has right now, connected (`●`, with h
 ### Running
 
 Shown while something runs beside the conversation: the subagents Claude started (`◆`, with how long they have run and their tokens) and the commands it sent to the background (`▸`, `◉` for a monitor), with their duration. A background command shows up as soon as it starts and goes at the end of the turn that follows its end; a subagent goes when it finishes.
+
+If another plugin (for example a security plugin installed by your company) answers Claude Code's `Stop` hook before the mod, Claude Code shows "cockpit: its classic.Stop hook was skipped" and the panel cannot tell when a background command ends: commands are then left out of this section, subagents still show.
+
 ### Quick actions
 
 | Button | What it does |
