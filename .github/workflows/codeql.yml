@@ -23,3 +23,11 @@ jobs:
           languages: javascript-typescript
           build-mode: none
       - uses: github/codeql-action/analyze@v3
+        with:
+          output: sarif-results
+      # the findings also as a downloadable file, readable without access to the Security tab
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif
+          path: sarif-results
+          retention-days: 14
