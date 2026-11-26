@@ -340,14 +340,44 @@ None of these is required; each section stays hidden or empty when its source is
 - **Pull requests** need git credentials for GitHub or Azure DevOps already stored by Git Credential Manager.
 - **Active modes** follows the skills `i-have-adhd`, `caveman` and `ponytail` when they are installed; other skills are not tracked.
 
-## What the mod runs and sends
+## What the mod does on your machine
 
-So you know what you are trusting:
+So you know what you are trusting. Everything below happens only on your machine and in your Claude Code session; the mod has no server of its own and sends no telemetry.
 
-- **Processes**: `git` (branch, status, remote, and `git credential fill` to read the token git already stores), `az account get-access-token` (only when Azure DevOps projects are watched), PowerShell on Windows / `osascript` on macOS / `wl-copy`, `wl-paste` or `xclip` on Linux (only when you press a copy or paste button), `git pull --ff-only` in the mod's own folder or `claude plugin update` (only when you run `/cockpit-update`). `wt` (Windows Terminal) and `claude`, `opencode`, `agy`, `codex` or `gemini`, only when you press `Handover` → `New session` or `→ <agent>`, or `+ new session here` in Sessions. `opencode` / `agy` / `codex` / `gemini` headless and read-only (through a hidden PowerShell on Windows, `sh` elsewhere), only when Claude calls the delegate tool. They run in every folder you open Claude Code in. On Windows each command is looked up by absolute path in `PATH`, never in the current folder, so a repository cannot ship its own `git.exe` or `az.cmd` to be run.
-- **Network**: only GET requests, only to `api.github.com` and `dev.azure.com`, and `GET <server>/v1/models` to the local model servers in the `localModels` option (by default `localhost:11434` and `localhost:1234`), to list their models. The host is fixed in the code; a git remote or a command can choose the organization or repository, never the host. Tokens stay in memory and are never shown, logged or written to disk.
-- **Files written**: Windows Terminal's `settings.json` and its backup (only when you press `Terminal look` or run `/cockpit-setup`), the reminders file (only when you press `✓ done` or `+1 day`) and the pasted image (in `%TEMP%\claude-cockpit\` on Windows, in a private `mktemp -d` folder on macOS and Linux).
-- The Write commands list is a reminder of what you ran, not a security control: a command wrapped in a script or `bash -c` is not seen.
+### Programs it starts
+
+- **Always, to fill the panel**: `git` (branch, status, remote) and `which` / `where` to find the agents in `PATH`. On Windows each program is looked up by absolute path in `PATH`, never in the current folder, so a repository cannot ship its own `git.exe` or `az.cmd` to be run.
+- **Only with the matching integration**: `az account get-access-token` (Azure DevOps projects watched), `git credential fill` (Pull request: reads the token git already stores).
+- **Only when you press a button**: PowerShell on Windows / `osascript` on macOS / `wl-copy`, `wl-paste` or `xclip` on Linux (copy and paste buttons); `wt` (Windows Terminal) and `claude`, `opencode`, `agy`, `codex` or `gemini` (`Handover` → `New session` or `→ <agent>`, `+ new session here` in Sessions); `git pull --ff-only` in the mod's own folder or `claude plugin update` (`/cockpit-update`).
+- **Only when Claude calls the delegate tool**: `opencode`, `agy`, `codex` or `gemini` headless, read-only unless you asked for write mode, through a hidden PowerShell on Windows and `sh` elsewhere; `git worktree add` for write mode; `taskkill` / `kill` when you stop a delegated task with `✕`.
+- **Only with `files →` on copy or move**: `Copy-Item` / `Move-Item` on Windows, `cp -n` / `mv -n` elsewhere, for the files whose paths you put in a prompt.
+
+### Network
+
+Only GET requests, only to `api.github.com` and `dev.azure.com`, and `GET <server>/v1/models` to the local model servers in the `localModels` option (by default `localhost:11434` and `localhost:1234`), to list their models. The host is fixed in the code; a git remote or a command can choose the organization or repository, never the host. Tokens stay in memory and are never shown, logged or written to disk.
+
+### Files it writes
+
+- Windows Terminal's `settings.json` and a backup of it, only when you press `Terminal look` or run `/cockpit-setup`.
+- The reminders file, only when you press `✓ done` or `+1 day`.
+- A pasted image: `%TEMP%\claude-cockpit\` on Windows, a private `mktemp -d` folder on macOS and Linux.
+- Handover notes in `~/.claude/handovers/`, never inside your repository.
+- Delegated tasks and their answers in `~/.claude/delegations/`, and for write mode a git worktree in `~/.claude/delegations/wt/` (or a `.delegated` marker in the new, empty output folder you named).
+- Files you named by their path in a prompt, copied or moved into the project's `attachments/` folder, only when `files →` is on copy or move.
+- On Windows, a handover log in `%TEMP%\claude-cockpit\handover.log`.
+
+### What it does in your Claude Code session
+
+- **Slash commands it runs**: `/model` and `/effort` (model and effort buttons), `/compact` and `/context` (Quick actions), `/clear` and `/rename` (Handover → This session, cleared). If Claude Code does not let it run one, the command is written into the prompt for you to send.
+- **Prompts it submits**: the handover request and, after `/clear`, "read the note at … and continue"; the message that a delegated task is done, with the path of its answer; the request to install a skill you asked for from Active modes. Each one says what it is for; none carries text from outside your session.
+- **Text it adds to the conversation**: a short note telling Claude which agents it may delegate to on its own, and which local model servers it found.
+- **Model calls**: Aside asks Claude your side question with the conversation as context, the same as a message you send; the answer stays in the panel.
+- **Messages to other sessions**: only when you press send in Sessions, to the session you picked.
+- **Settings it changes**: `cockpit.palette`, `cockpit.prodPattern` and `cockpit.attachmentsFolder`, only from the layout editor.
+- **Environment**: `OPENCODE_CONFIG_CONTENT` is set only for the OpenCode process it starts, to point it at the local model servers it found.
+- **A tool for Claude**: `mcp__cockpit__delegate`, described above.
+
+The Write commands list is a reminder of what you ran, not a security control: a command wrapped in a script or `bash -c` is not seen.
 
 ## Extras
 

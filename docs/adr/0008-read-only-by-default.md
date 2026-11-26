@@ -18,4 +18,4 @@ The panel runs in every session, in every folder, often next to production subsc
 ## Consequences
 
 - The panel can stay open on production contexts. A production subscription, cluster or branch is highlighted (`prodPattern`), never acted on.
-- Any new feature that writes must say so in the README section "What the mod runs and sends".
+- Any new feature that writes must say so in the README section "What the mod does on your machine".
