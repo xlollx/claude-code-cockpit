@@ -1157,11 +1157,28 @@ let PIPES_ALL = false
 let LOCAL_BASES: string[] = []
 let PALETTE = 'dark'
 const THEMES = ['dark', 'light', 'nord', 'high-contrast', 'colorblind'] as const
+// Claude Code's own theme (/theme). The mod cannot set the text colour, only backgrounds: text
+// without a colour of its own keeps the terminal's, white on a dark terminal, so the light palette
+// only reads on a light one. With a dark theme it is left out of the picker and warned about
+let CC_THEME = ''
+async function readCcTheme($: EngineInterface) {
+  try {
+    CC_THEME = String((await $.config.list()).find(r => r.key === 'theme')?.value ?? '')
+  } catch {
+    CC_THEME = ''
+  }
+}
+const darkTerminal = () => CC_THEME.startsWith('dark')
 
 // the theme chosen in the layout editor: written to the plugin's palette option, as /config does,
 // so there is one setting; the mod reloads with it and the panel redraws in the new colours
 async function setTheme($: EngineInterface, name: string) {
   if (name === PALETTE) {
+    return
+  }
+  await readCcTheme($)
+  if (name === 'light' && darkTerminal()) {
+    $.ui.toast('light needs a light terminal: switch the terminal profile to a light scheme and /theme light first')
     return
   }
   const r = await $.config.set({ key: 'cockpit.palette', value: name }).catch((err: unknown) => ({ deny: String(err) }))
@@ -3602,6 +3619,12 @@ export const register: Register = (on, options) => {
     await restoreSaved($)
     await loadModels($)
     CC_VERSION = (await $.session.version()).version
+    void (async () => {
+      await readCcTheme($)
+      if (PALETTE === 'light' && darkTerminal()) {
+        $.ui.toast('cockpit: the light palette needs a light terminal background. Pick another theme in ⚙ layout, or a light terminal scheme and /theme light')
+      }
+    })()
     const ran = await next(e)
     void detectAgents($).then(() => briefClaude($)).catch(() => undefined)
     // local reads first (files, git); the pull request asks the network, so it does not hold up the start
@@ -4528,7 +4551,7 @@ export const register: Register = (on, options) => {
             {/* the palette option, changed here as in /config (the mod reloads with it) */}
             <Box flexDirection="row" columnGap={1} flexWrap="wrap">
               <Text dimColor>theme</Text>
-              {THEMES.map(t => (
+              {THEMES.filter(t => t !== 'light' || !darkTerminal() || PALETTE === 'light').map(t => (
                 <Button key={`lay-theme-${t}`} plain onPress={() => void setTheme($, t)}>
                   <Text color={t === PALETTE ? ACCENT : BLUE} bold={t === PALETTE}>{t}</Text>
                 </Button>
