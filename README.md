@@ -189,6 +189,10 @@ The open pull request of the current branch, on GitHub or Azure DevOps: number, 
 
 Claude's task list for the session (`TaskCreate`/`TaskUpdate`, or `TodoWrite`): in progress ▶ first, then pending ○, then done ✓, with the done/total count in the title.
 
+
+### Running
+
+Shown while something runs beside the conversation: the subagents Claude started (`◆`, with how long they have run and their tokens) and the commands it sent to the background (`▸`, `◉` for a monitor), with their duration. A background command shows up as soon as it starts and goes at the end of the turn that follows its end; a subagent goes when it finishes.
 ### Quick actions
 
 | Button | What it does |

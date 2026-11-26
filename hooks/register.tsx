@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ProcessRunInit, Register, RenderElement, RenderNode, SessionRateLimit } from 'claude-code'
 
-import type { AgentId, Aside, DelegateJob, FileEdit, HandoverPhase, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
+import type { AgentId, Aside, DelegateJob, RunningItem, FileEdit, HandoverPhase, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
 const PANE = 'sidebar'
 const TITLE = 'Session'
@@ -35,6 +35,8 @@ const pipes = atom({ plugin: 'cockpit', key: 'pipes' } as const, [] as PipelineR
 const peers = atom({ plugin: 'cockpit', key: 'peers' } as const, [] as Peer[], { shape: 'peers-1' })
 const peerTo = atom({ plugin: 'cockpit', key: 'peerTo' } as const, null as string | null, { shape: 'peerTo-1' })
 const compactA = atom({ plugin: 'cockpit', key: 'compact' } as const, false, { shape: 'compact-1' })
+const agentsRunA = atom({ plugin: 'cockpit', key: 'agentsRun' } as const, [] as RunningItem[], { shape: 'agentsRun-1' })
+const bgRunA = atom({ plugin: 'cockpit', key: 'bgRun' } as const, [] as RunningItem[], { shape: 'bgRun-1' })
 const tickA = atom({ plugin: 'cockpit', key: 'tick' } as const, 0, { shape: 'tick-1' })
 const cacheA = atom({ plugin: 'cockpit', key: 'cache' } as const, null as { at: number; ttl: number } | null, { shape: 'cache-1' })
 const asides = atom({ plugin: 'cockpit', key: 'asides' } as const, [] as Aside[], { shape: 'asides-1' })
@@ -111,7 +113,7 @@ async function toggleSection($: EngineInterface, id: string) {
 const SECTIONS: ReadonlyArray<readonly [string, string]> = [
   ['dove', 'Where you are'], ['modello', 'Model'], ['btw', 'Aside'], ['search', 'Search'], ['sessioni', 'Sessions'],
   ['modalita', 'Active modes'], ['contesto', 'Context'], ['azioni', 'Quick actions'], ['delega', 'Delegation'],
-  ['pr', 'Pull request'], ['tasks', 'Tasks'], ['pipelines', 'Pipelines'], ['scritture', 'Write commands'],
+  ['pr', 'Pull request'], ['tasks', 'Tasks'], ['running', 'Running'], ['pipelines', 'Pipelines'], ['scritture', 'Write commands'],
   ['promemoria', 'Reminders'], ['file', 'Edited files'],
 ]
 const DEFAULT_ORDER = SECTIONS.map(s => s[0])
@@ -1011,7 +1013,7 @@ const PALETTES = {
 
 // option name of a section -> id used for its folded state
 const SECTION_IDS: Record<string, string> = {
-  btw: 'btw', aside: 'btw', search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
+  btw: 'btw', aside: 'btw', running: 'running', search: 'search', pipelines: 'pipelines', where: 'dove', model: 'modello', modes: 'modalita', context: 'contesto', pr: 'pr', tasks: 'tasks',
   actions: 'azioni', writes: 'scritture', reminders: 'promemoria', files: 'file', sessions: 'sessioni', delegation: 'delega',
 }
 let HIDDEN = new Set<string>()
@@ -2833,6 +2835,21 @@ async function giveKeysBack($: EngineInterface) {
   await openPane($)
 }
 
+// Running section: the subagents the engine lists as running, waiting or pending
+async function refreshAgents($: EngineInterface) {
+  try {
+    const list = (await $.agent.list())
+      .filter(a => a.status === 'running' || a.status === 'pending' || a.status === 'waiting')
+      .map(a => ({ id: a.id, kind: a.type, label: a.description || a.name || a.type, start: a.startTime, tokens: a.tokenCount }))
+    const before = JSON.stringify((await read($, agentsRunA)).map(a => [a.id, a.tokens]))
+    if (JSON.stringify(list.map(a => [a.id, a.tokens])) !== before) {
+      await update($, agentsRunA, () => list)
+    }
+  } catch {
+    /* no agent API on this surface */
+  }
+}
+
 async function updateCockpit($: EngineInterface): Promise<string> {
   const root = $.plugin.root
   const version = async () => {
@@ -3316,6 +3333,15 @@ export const register: Register = (on, options) => {
     $.clock.every(120_000, () => {
       void refreshPr($)
     })
+    // the Running section's durations and token counts, while something runs
+    $.clock.every(10_000, () => {
+      void (async () => {
+        await refreshAgents($)
+        if ((await read($, agentsRunA)).length + (await read($, bgRunA)).length > 0) {
+          await update($, tickA, n => n + 1)
+        }
+      })()
+    })
     // redraw the panel's countdowns (prompt cache) while there is one to show
     $.clock.every(30_000, () => {
       void (async () => {
@@ -3488,6 +3514,42 @@ export const register: Register = (on, options) => {
     }
     await measure($)
 
+    return next(e)
+  })
+
+  // a subagent starting or ending: the Running section follows at once
+  on('classic.SubagentStart', async ($, e, next) => {
+    void refreshAgents($)
+    return next(e)
+  })
+  on('classic.SubagentStop', async ($, e, next) => {
+    void refreshAgents($)
+    return next(e)
+  })
+  // a command sent to the background shows up as soon as it starts...
+  on('classic.PostToolUse', async ($, e, next) => {
+    const input = (e.tool_input ?? {}) as { run_in_background?: unknown; command?: unknown; description?: unknown }
+    if (e.tool_name === 'Bash' && input.run_in_background === true && typeof input.command === 'string') {
+      const label = typeof input.description === 'string' && input.description !== '' ? input.description : input.command
+      const start = await $.clock.now()
+      const id = `pending-${start}`
+      await update($, bgRunA, list => [...list, { id, kind: 'shell', label, start }])
+    }
+    return next(e)
+  })
+  // ...and at the end of every turn the engine's own list of background work replaces ours, so
+  // finished ones go (start times are kept for the ones still there, matched by their text)
+  on('classic.Stop', async ($, e, next) => {
+    const tasks = (e.background_tasks ?? []).filter(t => t.type !== 'subagent' && t.type !== 'local_agent')
+    const now = await $.clock.now()
+    await update($, bgRunA, prev =>
+      tasks.map(t => {
+        const label = t.description || t.command || t.name || t.tool || t.type
+        const known = prev.find(p => p.id === t.id || p.label === label || (t.command !== undefined && p.label === t.command))
+        return { id: t.id, kind: t.type, label, start: known?.start ?? now }
+      }),
+    )
+    void refreshAgents($)
     return next(e)
   })
 
@@ -3975,6 +4037,7 @@ export const register: Register = (on, options) => {
     const asked = await read($, asides)
     await read($, tickA)
     const cache = await read($, cacheA)
+    const running = [...(await read($, agentsRunA)), ...(await read($, bgRunA))]
     const askedOpen = await read($, asideOpen)
     const wr = await read($, writes)
     const rem = await read($, reminders)
@@ -4696,6 +4759,28 @@ export const register: Register = (on, options) => {
                     {cut(t.subject, cols - 4)}
                   </Text>
                 ))}
+            </Box>,
+          )}
+
+        {running.length > 0 &&
+          section('running', 'Running', VIOLET, running.length,
+            <Box flexDirection="column">
+              {/* subagents and background commands, with how long they have run */}
+              {running.slice(0, 8).map(r => {
+                const agent = r.kind !== 'shell' && r.kind !== 'monitor' && r.kind !== 'workflow'
+                const icon = agent ? '◆' : r.kind === 'monitor' ? '◉' : '▸'
+                const ran = r.start === undefined ? '' : now - r.start < 60e3 ? `${Math.max(0, Math.round((now - r.start) / 1e3))}s` : since(now - r.start)
+                const right = `${ran}${agent && r.tokens ? ` · ${kTok(r.tokens)}` : ''}`
+                return (
+                  <Box key={`run-${r.id}`} flexDirection="row">
+                    <Text color={agent ? VIOLET : BLUE}>{`${icon} `}</Text>
+                    <Box flexGrow={1} flexShrink={1}>
+                      <Text wrap="truncate-end">{r.label}</Text>
+                    </Box>
+                    <Text dimColor>{` ${right}`}</Text>
+                  </Box>
+                )
+              })}
             </Box>,
           )}
 

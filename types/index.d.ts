@@ -82,6 +82,9 @@ export type DelegateJob = { id: string; to: AgentId; title: string; out: string;
 export type Aside = { id: string; q: string; a: string; state: 'wait' | 'done' | 'error' }
 
 /** One item of Claude's task list */
+/** Work running beside the turn: a subagent (from $.agent.list) or a background command / monitor */
+export type RunningItem = { id: string; kind: string; label: string; start?: number; tokens?: number }
+
 export type TaskItem = { id: string; subject: string; status: 'pending' | 'in_progress' | 'completed' }
 
 /** A selectable model: family (fable, mythos...) and what to pass to /model (alias or id) */
@@ -140,6 +143,10 @@ declare module 'claude-code' {
       cache: Shaped<{ at: number; ttl: number } | null>
       /** a counter the panel reads so time-based lines (cache countdown) redraw every 30 s */
       tick: Shaped<number>
+      /** subagents running now */
+      agentsRun: Shaped<RunningItem[]>
+      /** background commands, monitors and workflows still running */
+      bgRun: Shaped<RunningItem[]>
       /** side questions asked from the panel, newest first (at most 5) */
       asides: Shaped<Aside[]>
       /** id of the side question shown in full (null: the newest) */
