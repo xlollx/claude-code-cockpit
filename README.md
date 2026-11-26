@@ -296,7 +296,7 @@ Set them in `/config` (the plugin's rows) or in `settings.json` under `pluginCon
 
 | Option | Default | What it does |
 |---|---|---|
-| `palette` | `dark` | `light` for terminals with a light background |
+| `palette` | `dark` | `light` for terminals with a light background, or a theme: `nord` (cool, muted), `high-contrast` (full colours on black), `colorblind` (Okabe-Ito colours, no red/green pairs; production stays vermilion) |
 | `proseWidth` | `0` | wrap reply text at this column (40 or more, e.g. `100` for shorter lines); `0` uses the whole chat width |
 | `panelWidth` | `0` | columns of the side panel, 24 or more (e.g. `32` for a small, compact panel on a wide screen); `0` lets Claude Code decide. Dragging the panel edge by hand also works and wins |
 | `hiddenSections` | empty | panel sections to hide, comma separated: `search`, `sessions`, `pipelines`, `where`, `model`, `modes`, `context`, `pr`, `tasks`, `actions`, `delegation`, `writes`, `reminders`, `files` |
@@ -306,6 +306,8 @@ Set them in `/config` (the plugin's rows) or in `settings.json` under `pluginCon
 | `adoProjects` | empty | extra Azure DevOps projects to watch for pipeline runs, comma separated as `org/project` |
 | `pipelinesShow` | `active-failed` | `all` shows every run of the last 24 hours, not only running, waiting and failed ones |
 | `pipelinesMax` | `4` | how many pipeline runs the panel shows at most |
+
+![The panel in the dark, nord, high-contrast and colorblind palettes](docs/themes.png)
 
 Example:
 

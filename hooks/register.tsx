@@ -1010,6 +1010,27 @@ const PALETTES = {
     HEAD_BG: '#dbe4f3', ZEBRA_BG: '#f5f5f7', TABLE_BORDER: '#a1a1aa', HL_BG: '#fde68a', HL_FG: '#78350f', CODE_INLINE: '#0e7490',
     BAND_BG: '#dedede', CHIP_ORANGE: '#fbe2d2', CHIP_BLUE: '#dbe6fb', CHIP_VIOLET: '#ebe2fb', CHIP_GREEN: '#d9f1df', GREEN: '#15803d',
   },
+  // cool and muted, after the Nord palette
+  nord: {
+    PANE_BG: '#2e3440', ACCENT: '#d08770', ACCENT_SOFT: '#a3765f', BLUE: '#88c0d0', VIOLET: '#b48ead', PROD: '#bf616a',
+    USER_BG: '#3b4252', CODE_BG: '#2b303b', TOOL_BG: '#323946', TOOL_BAR: '#616e88', CODE_BAR: '#a3be8c', TURN_RULE: '#434c5e',
+    HEAD_BG: '#3b4252', ZEBRA_BG: '#30363f', TABLE_BORDER: '#4c566a', HL_BG: '#5e5a3a', HL_FG: '#ebcb8b', CODE_INLINE: '#8fbcbb',
+    BAND_BG: '#3b4252', CHIP_ORANGE: '#463a3a', CHIP_BLUE: '#34404f', CHIP_VIOLET: '#3f3a4a', CHIP_GREEN: '#38433b', GREEN: '#a3be8c',
+  },
+  // full colours on black, for bright rooms and tired eyes
+  'high-contrast': {
+    PANE_BG: '#000000', ACCENT: '#ffa657', ACCENT_SOFT: '#ffc08a', BLUE: '#79c0ff', VIOLET: '#d2a8ff', PROD: '#ff7b72',
+    USER_BG: '#161b22', CODE_BG: '#0d1117', TOOL_BG: '#111111', TOOL_BAR: '#8b949e', CODE_BAR: '#56d364', TURN_RULE: '#484f58',
+    HEAD_BG: '#1f2937', ZEBRA_BG: '#0b0b0b', TABLE_BORDER: '#6e7681', HL_BG: '#9e6a03', HL_FG: '#ffffff', CODE_INLINE: '#a5f3fc',
+    BAND_BG: '#1c1c1c', CHIP_ORANGE: '#3b2410', CHIP_BLUE: '#0c2d48', CHIP_VIOLET: '#2b1d42', CHIP_GREEN: '#0f2e17', GREEN: '#56d364',
+  },
+  // Okabe-Ito colours, told apart without red and green: production stays vermilion, success is bluish green
+  colorblind: {
+    PANE_BG: '#262626', ACCENT: '#e69f00', ACCENT_SOFT: '#b8862e', BLUE: '#56b4e9', VIOLET: '#cc79a7', PROD: '#d55e00',
+    USER_BG: '#2b2b2f', CODE_BG: '#262629', TOOL_BG: '#28282c', TOOL_BAR: '#5c5c66', CODE_BAR: '#009e73', TURN_RULE: '#3a3a40',
+    HEAD_BG: '#2a3442', ZEBRA_BG: '#252528', TABLE_BORDER: '#55556a', HL_BG: '#6b5310', HL_FG: '#f0e442', CODE_INLINE: '#56b4e9',
+    BAND_BG: '#323232', CHIP_ORANGE: '#3d3220', CHIP_BLUE: '#203546', CHIP_VIOLET: '#3d2a37', CHIP_GREEN: '#1d3a32', GREEN: '#009e73',
+  },
 }
 
 // option name of a section -> id used for its folded state
@@ -1025,7 +1046,7 @@ let PIPES_MAX = 4
 let PIPES_ALL = false
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
-  const pal = options.palette === 'light' ? PALETTES.light : PALETTES.dark
+  const pal = PALETTES[String(options.palette) as keyof typeof PALETTES] ?? PALETTES.dark
   ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, TOOL_BG, TOOL_BAR, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE, BAND_BG, CHIP_ORANGE, CHIP_BLUE, CHIP_VIOLET, CHIP_GREEN, GREEN } = pal)
   const width = Number(options.proseWidth)
   // 0 (default) = the whole chat width; 40 or more = wrap reply text at that column
