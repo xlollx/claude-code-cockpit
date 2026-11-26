@@ -37,6 +37,7 @@ const peerTo = atom({ plugin: 'cockpit', key: 'peerTo' } as const, null as strin
 const compactA = atom({ plugin: 'cockpit', key: 'compact' } as const, false, { shape: 'compact-1' })
 const agentsRunA = atom({ plugin: 'cockpit', key: 'agentsRun' } as const, [] as RunningItem[], { shape: 'agentsRun-1' })
 const bgRunA = atom({ plugin: 'cockpit', key: 'bgRun' } as const, [] as RunningItem[], { shape: 'bgRun-1' })
+const localA = atom({ plugin: 'cockpit', key: 'localLlm' } as const, [] as { base: string; label: string; provider: string; models: string[] }[], { shape: 'localLlm-1' })
 const mcpA = atom({ plugin: 'cockpit', key: 'mcpServers' } as const, [] as { name: string; plugin?: string; tools: number; writes: number; login: boolean }[], { shape: 'mcpServers-2' })
 const tickA = atom({ plugin: 'cockpit', key: 'tick' } as const, 0, { shape: 'tick-1' })
 const cacheA = atom({ plugin: 'cockpit', key: 'cache' } as const, null as { at: number; ttl: number } | null, { shape: 'cache-1' })
@@ -1044,6 +1045,7 @@ let OPEN_ON_START = true
 let ADO_PROJECTS: string[] = []
 let PIPES_MAX = 4
 let PIPES_ALL = false
+let LOCAL_BASES: string[] = []
 
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pal = PALETTES[String(options.palette) as keyof typeof PALETTES] ?? PALETTES.dark
@@ -1068,6 +1070,12 @@ function applyOptions(options: Readonly<Record<string, unknown>>) {
   const pm = Number(options.pipelinesMax)
   PIPES_MAX = Number.isFinite(pm) && pm >= 1 ? Math.round(pm) : 4
   PIPES_ALL = options.pipelinesShow === 'all'
+  // OpenAI-compatible servers to look for local models on; plain http(s) URLs, no credentials
+  LOCAL_BASES = String(options.localModels ?? 'http://localhost:11434, http://localhost:1234')
+    .split(',')
+    .map(x => x.trim().replace(/\/+$/, '').replace(/\/v1$/, ''))
+    .filter(x => /^https?:\/\/[A-Za-z0-9.\-[\]:]+(\/[A-Za-z0-9._~\-/]*)?$/.test(x))
+    .slice(0, 8)
   ADO_PROJECTS = String(options.adoProjects ?? '').split(',').map(x => x.trim()).filter(x => /^[^/]+\/[^/]+$/.test(x))
   if (typeof options.inlineCodeColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(options.inlineCodeColor)) {
     CODE_INLINE = options.inlineCodeColor
@@ -1628,7 +1636,7 @@ async function briefClaude($: EngineInterface) {
     return
   }
   await $.session
-    .append({ message: { type: 'user', content: [{ type: 'text', text: `${DELEGATE_TAG} ${delegateBrief(installed, await read($, delegateAuto))}` }] } })
+    .append({ message: { type: 'user', content: [{ type: 'text', text: `${DELEGATE_TAG} ${delegateBrief(installed, await read($, delegateAuto))}${installed.includes('opencode') && (await read($, localA)).length > 0 ? ` ${localBrief(await read($, localA))}` : ''}` }] } })
     .catch(() => undefined)
 }
 
@@ -1681,9 +1689,9 @@ async function registerDelegate($: EngineInterface, installed: AgentId[]) {
 // agy reads it from its workspace (the work folder is added), so no length or quoting limits
 // read: OpenCode's plan agent, agy --mode plan. write: OpenCode's build agent, agy
 // --mode accept-edits; neither auto-approves what it would have to ask (headless denies it)
-function delegateArgs(id: AgentId, taskFile: string, workDir: string, title: string, write: boolean, model?: string): string[] {
+function delegateArgs(id: AgentId, taskFile: string, workDir: string, title: string, write: boolean, model?: string, archived = true): string[] {
   if (id === 'opencode') {
-    return ['run', '--agent', write ? 'build' : 'plan', '--format', 'json', '--archived', '--title', `delegate: ${title}`, ...(model !== undefined ? ['-m', model] : [])]
+    return ['run', '--agent', write ? 'build' : 'plan', '--format', 'json', ...(archived ? ['--archived'] : []), '--title', `delegate: ${title}`, ...(model !== undefined ? ['-m', model] : [])]
   }
   return [
     '--mode', write ? 'accept-edits' : 'plan', '--output-format', 'json', '--add-dir', workDir,
@@ -1692,19 +1700,36 @@ function delegateArgs(id: AgentId, taskFile: string, workDir: string, title: str
   ]
 }
 
+// `opencode run --archived` (the session kept out of the person's list) is not in every version:
+// an unknown flag makes the run print its help and exit, so it is used only where --help lists it
+let OPENCODE_ARCHIVED: boolean | undefined
+async function opencodeArchived($: EngineInterface, exe: string) {
+  if (OPENCODE_ARCHIVED === undefined) {
+    const r = await $.process.run(await agentArgv($, exe, ['run', '--help']), { timeoutMs: 30_000 }).catch(() => undefined)
+    OPENCODE_ARCHIVED = r !== undefined && `${r.stdout}${r.stderr}`.includes('--archived')
+  }
+  return OPENCODE_ARCHIVED
+}
+
 // the model the person named, matched against the agent's own list: exact id, or every word of
 // the name (letters and digits only) found in one id. Several matches: the candidates go back
 const MODEL_LISTS: Partial<Record<AgentId, string[]>> = {}
+const MODEL_LISTS_KEY: Partial<Record<AgentId, string>> = {}
 async function resolveModel($: EngineInterface, id: AgentId, exe: string, wanted: string): Promise<{ model?: string; error?: string }> {
-  let list = MODEL_LISTS[id]
+  // the list is kept for the local providers it was read with: when local servers appear (or go)
+  // it is read again, so a list fetched before they were found never hides them
+  const env = id === 'opencode' ? await opencodeEnv($) : undefined
+  const key = env?.OPENCODE_CONFIG_CONTENT ?? ''
+  let list = MODEL_LISTS_KEY[id] === key ? MODEL_LISTS[id] : undefined
   if (list === undefined) {
-    const r = await $.process.run(await agentArgv($, exe, ['models']), { timeoutMs: 60_000 }).catch(() => undefined)
+    const r = await $.process.run(await agentArgv($, exe, ['models']), { timeoutMs: 60_000, ...(env !== undefined ? { env } : {}) }).catch(() => undefined)
     list = (r?.stdout ?? '')
       .split(/\r?\n/)
       .map(l => l.split('\t')[0]?.trim() ?? '')
       .filter(l => l !== '' && !/\s/.test(l))
     if (list.length > 0) {
       MODEL_LISTS[id] = list
+      MODEL_LISTS_KEY[id] = key
     }
   }
   if (list.includes(wanted)) {
@@ -1791,10 +1816,12 @@ async function encodedPs($: EngineInterface, script: string, timeoutMs = 20_000)
 // The agent runs DETACHED from the mod: a hot reload of the mod's code (or the end of the
 // hook) must not stop it. It writes <base>.raw/.err, its pid in <base>.pid and its exit code
 // in <base>.exit; the poller below turns them into the answer file
-async function launchDetached($: EngineInterface, argv: string[], cwd: string, base: string, stdinFile: string) {
+async function launchDetached($: EngineInterface, argv: string[], cwd: string, base: string, stdinFile: string, env?: Record<string, string>) {
   const [exe = '', ...args] = argv
   if ((await platform($)) === 'windows') {
     const inner = [
+      // variables for the agent (OpenCode's local providers): set here, inherited by Start-Process
+      ...Object.entries(env ?? {}).map(([k, v]) => `$env:${k} = ${psQuote(v)}`),
       `$p = Start-Process -FilePath ${psQuote(exe)} -ArgumentList ${psQuote(args.map(winArg).join(' '))} -WorkingDirectory ${psQuote(cwd)}` +
         ` -RedirectStandardInput ${psQuote(stdinFile)} -RedirectStandardOutput ${psQuote(`${base}.raw`)} -RedirectStandardError ${psQuote(`${base}.err`)} -NoNewWindow -PassThru`,
       '$null = $p.Handle',
@@ -1813,11 +1840,12 @@ async function launchDetached($: EngineInterface, argv: string[], cwd: string, b
     }
     return
   }
-  const refs = args.map((_a, i) => `"$${i + 8}"`).join(' ')
+  // ${N} with braces: a plain $10 is $1 followed by a 0
+  const refs = args.map((_a, i) => `"\${${i + 8}}"`).join(' ')
   const r = await $.process.run(
     ['sh', '-c', `cd "$1" || exit 1; ( "$2" ${refs} < "$3" > "$4" 2> "$5" & echo $! > "$6"; wait $!; echo $? > "$7" ) > /dev/null 2>&1 &`, 'sh',
       cwd, exe, stdinFile, `${base}.raw`, `${base}.err`, `${base}.pid`, `${base}.exit`, ...args],
-    { timeoutMs: 10_000 },
+    { timeoutMs: 10_000, ...(env !== undefined ? { env } : {}) },
   )
   if (r.exitCode !== 0) {
     throw new Error(r.stderr.trim().slice(0, 200) || `exit ${String(r.exitCode)}`)
@@ -1995,7 +2023,7 @@ async function runDelegate($: EngineInterface, input: { to?: string; task?: stri
   }
   await update($, delegations, list => [job, ...list.filter(j => j.id !== job.id)].slice(0, 6))
   try {
-    await launchDetached($, await agentArgv($, exe, delegateArgs(id, taskFile, work, title, write, model)), cwd, base, `${base}.in`)
+    await launchDetached($, await agentArgv($, exe, delegateArgs(id, taskFile, work, title, write, model, id === 'opencode' ? await opencodeArchived($, exe) : true)), cwd, base, `${base}.in`, id === 'opencode' ? await opencodeEnv($) : undefined)
   } catch (err) {
     await finishDelegate($, job, null, `could not start: ${String(err)}`)
     return `Error: ${AGENTS[id].label} could not start (${String(err).slice(0, 200)}).`
@@ -2056,6 +2084,7 @@ async function refreshNow($: EngineInterface) {
     refreshReminders($),
     refreshPeers($),
     refreshMcp($),
+    refreshLocal($),
     loadModels($),
     refreshPr($),
     refreshPipes($, true),
@@ -2858,6 +2887,87 @@ async function giveKeysBack($: EngineInterface) {
   await openPane($)
 }
 
+// Local models: OpenAI-compatible servers on this machine or the private network (Ollama on
+// 11434, LM Studio on 1234, vLLM, llama.cpp...). Found with GET <base>/v1/models, a short wait
+// each; delegation reaches them through OpenCode, given the providers in OPENCODE_CONFIG_CONTENT
+// for that one run (the person's own OpenCode config is not touched)
+const localLabel = (base: string) => {
+  const u = /^https?:\/\/([^/:]+|\[[^\]]+\])(?::(\d+))?/.exec(base)
+  const port = u?.[2] ?? ''
+  const name = port === '11434' ? 'Ollama' : port === '1234' ? 'LM Studio' : port === '8000' ? 'vLLM' : port === '8080' ? 'llama.cpp' : 'OpenAI-compatible'
+  return `${name} · ${u?.[1] ?? base}${port !== '' ? `:${port}` : ''}`
+}
+async function refreshLocal($: EngineInterface) {
+  const found: { base: string; label: string; provider: string; models: string[] }[] = []
+  await Promise.all(
+    LOCAL_BASES.map(async base => {
+      const answer = await Promise.race([
+        $.http.fetch(`${base}/v1/models`, { method: 'GET' }).catch(() => undefined),
+        new Promise<undefined>(res => $.clock.after(2500, () => res(undefined))),
+      ])
+      if (answer === undefined || !answer.ok) {
+        return
+      }
+      try {
+        const ids = ((JSON.parse(answer.text) as { data?: { id?: unknown }[] }).data ?? [])
+          .map(m => (typeof m.id === 'string' ? m.id : ''))
+          .filter(id => /^[\w.:/@+-]{1,120}$/.test(id))
+          .slice(0, 50)
+        if (ids.length > 0) {
+          const provider = `local-${base.replace(/^https?:\/\//, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
+          found.push({ base, label: localLabel(base), provider, models: ids })
+        }
+      } catch {
+        /* not an OpenAI-compatible answer */
+      }
+    }),
+  )
+  found.sort((a, b) => LOCAL_BASES.indexOf(a.base) - LOCAL_BASES.indexOf(b.base))
+  const before = await read($, localA)
+  if (JSON.stringify(found) !== JSON.stringify(before)) {
+    await update($, localA, () => found)
+    MODEL_LISTS.opencode = undefined
+    // Claude hears about local models that appear after its delegation note
+    if (found.length > 0 && (await read($, agentsA)).includes('opencode')) {
+      await $.session
+        .append({ message: { type: 'user', content: [{ type: 'text', text: `${DELEGATE_TAG} ${localBrief(found)}` }] } })
+        .catch(() => undefined)
+    }
+  }
+}
+function localBrief(found: { label: string; provider: string; models: string[] }[]) {
+  const ids = found.flatMap(f => f.models.map(m => `${f.provider}/${m}`))
+  return (
+    `Local models (on this machine or the private network, so the data does not leave it): ${ids.slice(0, 20).join(', ')}. ` +
+    'To use one, delegate with to "opencode" and model set to that id. They are usually smaller than hosted ' +
+    'models: give them simple, well-bounded tasks and verify the answer.'
+  )
+}
+// OpenCode's environment for a run: the local servers as openai-compatible providers, merged
+// into any OPENCODE_CONFIG_CONTENT the person already set
+async function opencodeEnv($: EngineInterface): Promise<Record<string, string> | undefined> {
+  const found = await read($, localA)
+  if (found.length === 0) {
+    return undefined
+  }
+  let cfg: { provider?: Record<string, unknown> } = {}
+  try {
+    cfg = JSON.parse((await $.env.get('OPENCODE_CONFIG_CONTENT')) ?? '{}') as typeof cfg
+  } catch {
+    cfg = {}
+  }
+  const provider: Record<string, unknown> = { ...(cfg.provider ?? {}) }
+  for (const f of found) {
+    provider[f.provider] = {
+      npm: '@ai-sdk/openai-compatible',
+      name: f.label,
+      options: { baseURL: `${f.base}/v1` },
+      models: Object.fromEntries(f.models.map(m => [m, { name: m }])),
+    }
+  }
+  return { OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...cfg, provider }) }
+}
+
 // MCP servers section: the servers whose tools this session has right now (connected, not just
 // configured), read from the tool list by their mcp__<server>__<tool> names; the mod's own left out
 async function refreshMcp($: EngineInterface) {
@@ -3363,6 +3473,7 @@ export const register: Register = (on, options) => {
     // local reads first (files, git); the pull request asks the network, so it does not hold up the start
     await Promise.all([measure($), refreshWhere($), refreshReminders($)])
     void refreshMcp($)
+    void refreshLocal($)
     void refreshPr($)
     void refreshPipes($, true)
     void refreshPeers($)
@@ -3391,6 +3502,10 @@ export const register: Register = (on, options) => {
     // a server that connects later (or drops) shows up within a minute
     $.clock.every(60_000, () => {
       void refreshMcp($)
+    })
+    // a local model server started later (ollama serve, LM Studio) shows up within two minutes
+    $.clock.every(120_000, () => {
+      void refreshLocal($)
     })
     // the Running section's durations and token counts, while something runs
     $.clock.every(10_000, () => {
@@ -4098,6 +4213,7 @@ export const register: Register = (on, options) => {
     const cache = await read($, cacheA)
     const running = [...(await read($, agentsRunA)), ...(await read($, bgRunA))]
     const mcpList = await read($, mcpA)
+    const localList = await read($, localA)
     const askedOpen = await read($, asideOpen)
     const wr = await read($, writes)
     const rem = await read($, reminders)
@@ -4748,6 +4864,21 @@ export const register: Register = (on, options) => {
                   </Button>
                 )
               })}
+              {/* local model servers: reachable through OpenCode, the data stays on this machine or network */}
+              {agentsHere.includes('opencode') && localList.length > 0 && (
+                <Box flexDirection="column">
+                  <Text dimColor>local models, through OpenCode:</Text>
+                  {localList.map(l => (
+                    <Box key={`llm-${l.provider}`} flexDirection="row">
+                      <Text color={BLUE}>{'◈ '}</Text>
+                      <Box flexGrow={1} flexShrink={1}>
+                        <Text wrap="truncate-end">{l.label}</Text>
+                      </Box>
+                      <Text dimColor>{` ${l.models.length}${narrow ? '' : l.models.length === 1 ? ' model' : ' models'}`}</Text>
+                    </Box>
+                  ))}
+                </Box>
+              )}
               {dl.map(j => (
                 <Box key={`dj-${j.id}`} flexDirection="row">
                   <Button

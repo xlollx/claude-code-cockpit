@@ -29,6 +29,17 @@ Say it in your own words. Examples:
 
 With `wait: true` Claude waits for the answer in the same call, up to 10 minutes, instead.
 
+## Local models (Ollama, LM Studio, vLLM)
+
+Models that run on your PC or your private network can take delegated work too, through OpenCode, and the data never leaves your machine or network.
+
+1. Start the server: `ollama serve` (port 11434), LM Studio's local server (port 1234), vLLM or llama.cpp with an OpenAI-compatible endpoint.
+2. If it is not on one of the default addresses, add it to the `localModels` option (`/config` → cockpit), comma separated, e.g. `http://localhost:11434, http://192.168.1.50:8000`.
+3. The Delegation section lists it, `◈ Ollama · localhost:11434 · 3 models`, within two minutes (or press `↻`).
+4. Ask: "delegate this to OpenCode with the local qwen3-coder". The model ids look like `local-localhost-11434/qwen3-coder:30b`; a short name is matched as usual, and when it also matches a hosted model Claude asks which one.
+
+The mod asks each server `GET /v1/models` and gives OpenCode the servers as `@ai-sdk/openai-compatible` providers for that run only, through `OPENCODE_CONFIG_CONTENT` (merged into yours if you set it). Your OpenCode config files are not changed. Local models are usually smaller than hosted ones: give them simple, well-bounded tasks.
+
 ## Write mode
 
 Only when you ask. The agent may then edit files, but never your working tree:

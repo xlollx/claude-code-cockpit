@@ -148,6 +148,8 @@ declare module 'claude-code' {
       /** background commands, monitors and workflows still running */
       bgRun: Shaped<RunningItem[]>
       /** MCP servers whose tools the session has now, with how many tools and how many can write */
+      /** OpenAI-compatible model servers found on this machine or the private network (Ollama, LM Studio, vLLM) */
+      localLlm: Shaped<{ base: string; label: string; provider: string; models: string[] }[]>
       mcpServers: Shaped<{ name: string; plugin?: string; tools: number; writes: number; login: boolean }[]>
       /** side questions asked from the panel, newest first (at most 5) */
       asides: Shaped<Aside[]>

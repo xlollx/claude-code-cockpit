@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "author": {
     "name": "xlollx",
@@ -80,6 +80,12 @@
       "title": "Pipelines max",
       "description": "How many pipeline runs the panel shows at most",
       "default": 4
+    },
+    "localModels": {
+      "type": "string",
+      "title": "Local model servers",
+      "description": "OpenAI-compatible servers whose models delegation may use through OpenCode, comma separated (Ollama, LM Studio, vLLM, llama.cpp, on this PC or the private network)",
+      "default": "http://localhost:11434, http://localhost:1234"
     }
   }
 }
