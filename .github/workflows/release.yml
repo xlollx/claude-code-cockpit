@@ -1,10 +1,18 @@
-# A tag v* (for example v0.28.0) publishes a GitHub release: the tag's message as the notes,
-# followed by the list of changes since the previous release.
+# Publishes a GitHub release for the version in plugin.json:
+# - pushing a tag v* (for example v0.28.0): the tag's message as the notes;
+# - or by hand (Actions > Release > Run workflow): creates the tag on main, with the notes given there.
+# Either way the list of changes since the previous release follows the notes.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: Release notes (markdown)
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -17,11 +25,21 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Read the version
+        id: v
+        run: echo "tag=v$(node -p "require('./.claude-plugin/plugin.json').version")" >> "$GITHUB_OUTPUT"
       - name: Check the tag matches plugin.json
-        run: |
-          v=$(node -p "require('./.claude-plugin/plugin.json').version")
-          test "v$v" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, plugin.json $v"; exit 1; }
-      - name: Publish the release
+        if: github.event_name == 'push'
+        run: test "${{ steps.v.outputs.tag }}" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, plugin.json ${{ steps.v.outputs.tag }}"; exit 1; }
+      - name: Publish the release (tag pushed)
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --title "Cockpit $GITHUB_REF_NAME" --notes-from-tag --generate-notes --verify-tag
+      - name: Publish the release (by hand)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          NOTES: ${{ inputs.notes }}
+        run: gh release create "$TAG" --target "$GITHUB_SHA" --title "Cockpit $TAG" --notes "$NOTES" --generate-notes
