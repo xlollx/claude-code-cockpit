@@ -1,0 +1,42 @@
+name: Bug report
+description: Something in the panel or the chat does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. A screenshot of the panel or the chat helps a lot.
+  - type: input
+    id: cockpit
+    attributes:
+      label: Cockpit version
+      description: "`version` in `.claude-plugin/plugin.json`, or the one `/cockpit-update` prints"
+      placeholder: "0.26.0"
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version
+      description: "`claude --version`"
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: OS and terminal
+      placeholder: "Windows 11, Windows Terminal 1.22"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you pressed or typed, what you expected, what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: "For Handover or Delegation: the matching lines of `%TEMP%\\claude-cockpit\\handover.log` (Windows). Remove anything private."
+      render: text

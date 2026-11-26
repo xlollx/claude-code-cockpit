@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit reviews pull requests (the app must be installed on the repository).
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!docs/**/*.png"
+    - "!docs/**/*.gif"
+    - "!docs/**/*.svg"
+  path_instructions:
+    - path: "hooks/register.tsx"
+      instructions: |
+        This is a Claude Code mod (one hooks module). Check the rules in CONTRIBUTING.md:
+        - programs run through run()/bin(), resolved by absolute path in PATH, never the current folder;
+          names that end up in a URL or a command line are validated;
+        - read by default: anything that changes something comes from a person's press or a documented tool;
+        - onPress handlers return fast (long work started with void); tool.run hooks use a { tool } filter;
+        - every Button inside a .map() has a key; no variable named h where JSX is in scope;
+        - notes to the model go through $.session.append;
+        - per-session state in atoms, choices that survive sessions in $.store, restored after /clear;
+        - the interface is in English and works (or stays hidden) without the optional tools.
+        Point out anything that could act on production resources without an explicit press.
+    - path: "README.md"
+      instructions: |
+        Every feature a person can see must be described, and the section on what the mod runs and sends
+        must list every program and host the code uses.
+    - path: ".claude-plugin/plugin.json"
+      instructions: The version must be bumped for any change people will see.
+chat:
+  auto_reply: true

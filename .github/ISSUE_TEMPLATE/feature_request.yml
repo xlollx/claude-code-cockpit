@@ -1,0 +1,16 @@
+name: Idea or feature request
+description: Something the panel or the chat could show or do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to see or do?
+      description: The situation it would help with, in your own workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it look?
+      description: A sketch, a screenshot of another tool, or a few words.

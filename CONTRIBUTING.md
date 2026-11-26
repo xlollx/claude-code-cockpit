@@ -48,6 +48,8 @@ Both must pass (`validate` may warn about the missing icon and author; nothing e
 - No AI signatures or co-author lines in commits, pull requests or docs.
 - Bump `version` in `.claude-plugin/plugin.json` for any change people will see.
 - Pull requests from forks are welcome: one topic per pull request, with what you tested and on which terminal and OS.
+- Every push and pull request runs `claude plugin validate .` (the Validate workflow) and CodeQL. CodeRabbit reviews pull requests with the rules of this page (`.coderabbit.yaml`).
+- Security problems: see [SECURITY.md](SECURITY.md), never a public issue.
 
 ## Docs to keep in step
 

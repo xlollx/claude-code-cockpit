@@ -3,6 +3,7 @@
 <p align="center"><img src="docs/social-preview.png" alt="claude-code-cockpit: a side panel and a readable chat for Claude Code in the terminal" width="100%"></p>
 
 <p>
+  <a href="https://github.com/xlollx/claude-code-cockpit/actions/workflows/validate.yml"><img src="https://github.com/xlollx/claude-code-cockpit/actions/workflows/validate.yml/badge.svg" alt="Validate"></a>
   <a href="https://github.com/xlollx/claude-code-cockpit/stargazers"><img src="https://img.shields.io/github/stars/xlollx/claude-code-cockpit?style=flat&color=e8a33d" alt="GitHub stars"></a>
   <a href="https://github.com/xlollx/claude-code-cockpit/commits"><img src="https://img.shields.io/github/last-commit/xlollx/claude-code-cockpit?style=flat" alt="Last commit"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat" alt="License: AGPL-3.0"></a>

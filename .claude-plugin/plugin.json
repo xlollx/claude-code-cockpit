@@ -2,6 +2,12 @@
   "name": "cockpit",
   "version": "0.28.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
+  "author": {
+    "name": "xlollx",
+    "url": "https://github.com/xlollx"
+  },
+  "homepage": "https://github.com/xlollx/claude-code-cockpit",
+  "icon": "./.claude-plugin/icon.png",
   "types": "./types/index.d.ts",
   "userConfig": {
     "palette": {
