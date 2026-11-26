@@ -4,3 +4,6 @@ node_modules/
 *.bak*
 .DS_Store
 *.log
+
+# git worktrees of Claude Code agents
+.claude/worktrees/
