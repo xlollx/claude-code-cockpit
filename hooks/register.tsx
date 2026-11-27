@@ -4646,8 +4646,6 @@ export const register: Register = (on, options) => {
     // (one more cell kept free: a line exactly as wide as the body wraps in the terminal)
     const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 2 * sp.pad - 1)
     const narrow = cols < 36
-    // Claude Code wraps an Input's text on Windows only (elsewhere it scrolls on one line)
-    const wrapsInput = (await $.env.get('OS')) === 'Windows_NT'
     // cells the footer's help chip takes, plus the gap before it
     const helpW = (narrow ? 3 : 8) + 1
     const barW = Math.max(6, Math.min(28, cols - 10))
@@ -4955,9 +4953,6 @@ export const register: Register = (on, options) => {
                 placeholder={narrow ? 'ask aside…' : 'click here and ask a side question…'}
                 value=""
                 submitLabel="ask"
-                // as tall as the question needs (one row per ~30 characters, 6 at most) where
-                // Claude Code wraps the field's text, so all of it shows and the cursor stays inside
-                rows={wrapsInput ? Math.min(6, 1 + Math.floor(asideDraft.length / 30)) : 1}
                 onInput={v => void update($, asideLen, () => v)}
                 onSubmit={q => void (async () => {
                   void update($, asideLen, () => '')
