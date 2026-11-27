@@ -4968,7 +4968,13 @@ export const register: Register = (on, options) => {
             )}
             {/* Claude Code draws the field's first row only: a question longer than it is shown
                 whole here, wrapped, while it is typed */}
-            {asideDraft.length > 30 && <Text color={BLUE}>{asideDraft}</Text>}
+            {/* a caret of its own at the end of the copy: where the next letter goes */}
+            {asideDraft.length > 30 && (
+              <Text color={BLUE}>
+                {asideDraft}
+                <Text color={ACCENT}>▏</Text>
+              </Text>
+            )}
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {
