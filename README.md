@@ -86,6 +86,7 @@ By hand: `/plugin uninstall cockpit`, then copy `settings.json.cockpit-<date>.ba
 | `/aside <question>` | asks a side question from the prompt box, which wraps a long one; the answer shows in the panel's Aside section, never in the chat |
 | `/cockpit-setup` | applies the recommended Windows Terminal look (see Install), with a backup |
 | `/cockpit-update` | updates the mod to its latest version (see Update) |
+| `/cockpit-update-force` | updates the mod and then runs `/reload-plugins` in this session, so the new version is loaded at once |
 | `/cockpit-uninstall` | lists what uninstalling puts back; `/cockpit-uninstall yes` does it (see Uninstall) |
 | `/newstyle off` | turns the whole look off: panel and chat styling. `/newstyle on` turns it back on. The choice is remembered across sessions |
 

@@ -3804,6 +3804,7 @@ async function registerCommands($: EngineInterface) {
   })
   await $.command.register({ name: 'cockpit-setup', description: 'Apply the recommended Windows Terminal look (colours, real bold), with a backup' })
   await $.command.register({ name: 'cockpit-update', description: 'Update the cockpit mod to its latest version (git pull of a clone, or the marketplace)' })
+  await $.command.register({ name: 'cockpit-update-force', description: 'Update the cockpit mod, then reload the plugins in this session at once (/cockpit-update + /reload-plugins)' })
   await $.command.register({
     name: 'cockpit-uninstall',
     description: 'Uninstall the mod and put back what it changed (terminal, options, stored state); without "yes" only lists it',
@@ -4021,6 +4022,18 @@ export const register: Register = (on, options) => {
     return { text: 'Asked aside: the answer shows in the cockpit panel.' }
   })
   on('command.run', { command: 'cockpit-update' }, async $ => ({ text: await updateCockpit($) }))
+  // the update and /reload-plugins in one go. The reload runs once this command has answered
+  // (it replaces this very module); where a mod may not run it, it is written in the prompt box
+  on('command.run', { command: 'cockpit-update-force' }, async $ => {
+    const text = await updateCockpit($)
+    if (text.startsWith('Not updated')) {
+      return { text }
+    }
+    $.clock.after(400, () => {
+      void $.command.run({ command: 'reload-plugins' }).catch(() => $.prompt.fill({ text: '/reload-plugins' }))
+    })
+    return { text: `${text.replace(/ Run \/reload-plugins.*$/, '')} Reloading the plugins…` }
+  })
   on('command.run', { command: 'cockpit-uninstall' }, async ($, e) => ({ text: await uninstallCockpit($, e.args.trim().toLowerCase() === 'yes') }))
   on('command.run', { command: 'cockpit' }, openCommand)
   on('command.run', { command: 'sidebar' }, openCommand)
