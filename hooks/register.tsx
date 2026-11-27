@@ -2814,6 +2814,15 @@ function styleLine(line: string): StyledLine {
       code = !code
       continue
     }
+    // a bare URL is text as it is: its _ and * are not style markers (…/_git/… is not italic)
+    const url = code || (ch !== 'h' && ch !== 'H') ? null : /^https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/i.exec(s.slice(k))
+    if (url) {
+      for (const uc of url[0]) {
+        chars.push({ c: uc, b, i: it, code: false })
+      }
+      k += url[0].length - 1
+      continue
+    }
     if (!code && (ch === '*' || ch === '_') && /[^\w*]|^$/.test(s[k - 1] ?? '') !== /[^\w*]|^$/.test(s[k + 1] ?? '')) {
       // a single * or _ next to a word on one side only: an italic marker
       it = !it
@@ -2884,6 +2893,25 @@ function rebuild(lines: StyledLine[], from: { l: number; k: number }, to: { l: n
 }
 
 const alnum = (c: string) => /[\p{L}\p{N}]/u.test(c)
+
+// A prompt with pasted text carries it twice: the "[Pasted text #N +M lines]" placeholder the
+// composer showed, and the text itself in <pasted_content id="…"> … </pasted_content id="…">
+// tags added for Claude. The prompt box shows it as typed: the block goes, or becomes a short
+// line when no placeholder stands for it
+const PASTED_RX = /\n?<pasted_content id="[^"]*">\n?([\s\S]*?)\n?<\/pasted_content[^>]*>\n?/g
+function hidePasted(text: string): string {
+  if (!text.includes('<pasted_content')) {
+    return text
+  }
+  const placeholder = /\[Pasted text #\d+/.test(text)
+  return text
+    .replace(PASTED_RX, (_, body: string) => {
+      const n = body.trim() === '' ? 0 : body.trim().split('\n').length
+      return placeholder ? '\n' : `\n[pasted text · ${n} ${n === 1 ? 'line' : 'lines'}]\n`
+    })
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
 
 function selectionMarkdown(sel: string, rowMd: string | undefined): string {
   // the drawn text, its bullets and bars made markdown again (used when no row is found)
@@ -4062,7 +4090,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const input = e as unknown as { file_path?: string; notebook_path?: string; command?: string; skill?: string; args?: string }
     // a subagent starting: the Running section lists it (it is read again every 10 s while shown)
-    if (e.tool === 'Agent' || e.tool === 'Task') {
+    if (e.tool === 'Agent' || (e.tool as string) === 'Task') {
       $.clock.after(1500, () => void refreshAgents($))
     }
 
@@ -4158,13 +4186,14 @@ export const register: Register = (on, options) => {
     if (COMMAND_ROW.test(e.props.text)) {
       return next(e)
     }
+    const shown = hidePasted(e.props.text)
 
     return (
       <Box flexDirection="row" marginTop={1} marginRight={GAP}>
         <Box width={1} backgroundColor={BLUE} />
         <Box flexGrow={1} backgroundColor={USER_BG} paddingX={2} paddingY={1}>
           <Text>
-            {splitHits(e.props.text, hq).map(([t, hit]) =>
+            {splitHits(shown, hq).map(([t, hit]) =>
               hit ? (
                 <Text backgroundColor={HL_BG} color={HL_FG} bold>
                   {t}
