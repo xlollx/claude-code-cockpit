@@ -43,6 +43,8 @@ const tickA = atom({ plugin: 'cockpit', key: 'tick' } as const, 0, { shape: 'tic
 const cacheA = atom({ plugin: 'cockpit', key: 'cache' } as const, null as { at: number; ttl: number } | null, { shape: 'cache-1' })
 const asides = atom({ plugin: 'cockpit', key: 'asides' } as const, [] as Aside[], { shape: 'asides-1' })
 const asideOpen = atom({ plugin: 'cockpit', key: 'asideOpen' } as const, null as string | null, { shape: 'asideOpen-1' })
+// the side question being typed, shown whole under the field when it is longer than it
+const asideLen = atom({ plugin: 'cockpit', key: 'asideLen' } as const, '', { shape: 'asideLen-2' })
 const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as string | null, { shape: 'remOpen-1' })
 const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
 const orderA = atom({ plugin: 'cockpit', key: 'order' } as const, [] as string[], { shape: 'order-1' })
@@ -4062,7 +4064,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const input = e as unknown as { file_path?: string; notebook_path?: string; command?: string; skill?: string; args?: string }
     // a subagent starting: the Running section lists it (it is read again every 10 s while shown)
-    if (e.tool === 'Agent' || e.tool === 'Task') {
+    if (e.tool === 'Agent') {
       $.clock.after(1500, () => void refreshAgents($))
     }
 
@@ -4545,6 +4547,7 @@ export const register: Register = (on, options) => {
     const eff = await read($, effort)
     const w = await read($, where)
     const asked = await read($, asides)
+    const asideDraft = await read($, asideLen)
     await read($, tickA)
     const cache = await read($, cacheA)
     const running = [...(await read($, agentsRunA)), ...(await read($, bgRunA))]
@@ -4870,12 +4873,17 @@ export const register: Register = (on, options) => {
                 placeholder={narrow ? 'ask aside…' : 'click here and ask a side question…'}
                 value=""
                 submitLabel="ask"
+                // the field is one scrolling line: what is typed is also shown whole under it
+                onInput={v => void update($, asideLen, () => v)}
                 onSubmit={q => void (async () => {
+                  void update($, asideLen, () => '')
                   void askAside($, q)
                   await giveKeysBack($)
                 })()}
               />
             </Box>
+            {/* a question longer than the field: all of it, wrapped, while it is being typed */}
+            {asideDraft.length > Math.max(10, cols - 24) && <Text color={BLUE}>{asideDraft}</Text>}
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {
