@@ -4966,13 +4966,14 @@ export const register: Register = (on, options) => {
                 <Text backgroundColor={BAND_BG}><Text dimColor>{' ✕ '}</Text>{'clear '}</Text>
               </Button>
             )}
-            {/* the field is one scrolling line: for a long question, the prompt box wraps */}
-            {asideDraft.length > 40 && <Text dimColor>{narrow ? 'long? /aside <question> in the prompt' : 'long question? type /aside <question> in the prompt box, it wraps'}</Text>}
+            {/* Claude Code draws the field's first row only: a question longer than it is shown
+                whole here, wrapped, while it is typed */}
+            {asideDraft.length > 30 && <Text color={BLUE}>{asideDraft}</Text>}
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {
                 // the hint only while nothing is being typed
-                return asideDraft.length > 40 ? null : <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: answered with the chat in mind, not added to it'}</Text>
+                return asideDraft.length > 30 ? null : <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: answered with the chat in mind, not added to it'}</Text>
               }
               return (
                 <Box flexDirection="column">
