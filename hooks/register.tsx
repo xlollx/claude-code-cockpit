@@ -4938,7 +4938,11 @@ export const register: Register = (on, options) => {
                 value=""
                 submitLabel="ask"
                 // the field is one scrolling line: what is typed is also shown whole under it
-                onInput={v => void update($, asideLen, () => v)}
+                onInput={v => {
+                  void update($, asideLen, () => v)
+                  // diagnosis of a field that stops showing the text on Windows: the length only, never the text
+                  void hoLog($, `aside input len=${v.length} lines=${v.split('\n').length} cols=${cols}`)
+                }}
                 onSubmit={q => void (async () => {
                   void update($, asideLen, () => '')
                   void askAside($, q)
@@ -4947,7 +4951,7 @@ export const register: Register = (on, options) => {
               />
             </Box>
             {/* a question longer than the field: all of it, wrapped, while it is being typed */}
-            {asideDraft.length > Math.max(10, cols - 24) && <Text color={BLUE}>{asideDraft}</Text>}
+            {asideDraft.length > 20 && <Text color={BLUE}>{asideDraft}</Text>}
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {

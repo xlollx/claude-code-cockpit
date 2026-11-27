@@ -1,7 +1,7 @@
 {
   "name": "cockpit",
   "displayName": "Cockpit",
-  "version": "0.42.1",
+  "version": "0.42.2",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "author": {
     "name": "xlollx",
