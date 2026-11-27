@@ -470,7 +470,7 @@ const HELP: { title: string; tone: HelpTone; items: [string, string][] }[] = [
   ] },
   { title: 'Aside', tone: 'accent', items: [
     ['question', 'like /btw: answered with the chat in mind, never added to it; the last 5 stay below'],
-    ['/aside', 'a click on the box (or typing /aside <question>) asks it in the prompt box; a draft there comes back after'],
+    ['/aside', 'New question (or typing /aside <question>) asks it in the prompt box; a draft there comes back after'],
   ] },
   { title: 'Search', tone: 'accent', items: [
     ['Enter', 'lists every match in the messages, newest first, and highlights it in the chat'],
@@ -4988,21 +4988,17 @@ export const register: Register = (on, options) => {
 
         {section('btw', 'Aside', ACCENT, undefined,
           <Box flexDirection="column">
-            {/* a framed box that reads as a field. The question is typed in the prompt box, which a
-                click starts with "/aside ": it wraps, scrolls and edits like any prompt, with one
-                cursor (a field in the panel shows its first row only) */}
-            <Box borderStyle="round" borderColor={BLUE} paddingX={1} flexDirection="row">
+            {/* a button, not a field: the question is typed in the prompt box, which a click starts
+                with "/aside " (it wraps, scrolls and edits like any prompt, with one cursor) */}
+            <Box flexDirection="row">
               <Button key="aside-ask" plain onPress={() => void askInPrompt($)}>
-                <Text>
-                  <Text color={BLUE}>{'? '}</Text>
-                  <Text dimColor>{narrow ? 'ask aside…' : 'click here and ask a side question…'}</Text>
-                </Text>
+                <Text backgroundColor={CHIP_ORANGE}><Text color={ACCENT}>{' ? '}</Text>{'New question '}</Text>
               </Button>
             </Box>
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {
-                return <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: typed in the prompt box, answered here, not added to the chat'}</Text>
+                return <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: typed in the prompt box below, answered here, not added to the chat'}</Text>
               }
               return (
                 <Box flexDirection="column">
