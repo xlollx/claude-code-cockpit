@@ -159,7 +159,7 @@ declare module 'claude-code' {
       asides: Shaped<Aside[]>
       /** id of the side question shown in full (null: the newest) */
       asideOpen: Shaped<string | null>
-      asideLen: Shaped<string>
+      asideStash: Shaped<string>
       /** Handover quick action: where it stands */
       handover: Shaped<HandoverPhase>
       /** other agents found in PATH (OpenCode, Antigravity) */

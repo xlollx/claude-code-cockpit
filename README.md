@@ -133,7 +133,7 @@ Production is easy to spot: a subscription, context or branch whose name matches
 
 ![Aside: a side question answered in a box in the panel, the chat untouched](docs/aside.png)
 
-A side question, like Claude Code's `/btw`, in a small window of its own. Type it and press Enter: Claude answers with the conversation in mind, briefly, in a box under the field, and nothing is added to the chat. The keyboard goes back to the prompt at once, so what you type next lands in the chat. Under the answer, `⧉ Copy` and `✕ Close`; earlier side questions stay underneath on one line each, a click shows them again (the last 5). The field is one line that scrolls: `✕ clear` empties it, and a long question is easier to type as `/aside <question>` in the prompt box, which wraps. Each question is one request to the model, read from the prompt cache, and counts toward your usage like any other.
+A side question, like Claude Code's `/btw`, answered in a small window of its own. Click the box: the prompt box gets `/aside ` (in orange) and the keyboard, so the question is typed where text wraps and edits normally; press Enter. Claude answers with the conversation in mind, briefly, in a box in the panel, and nothing is added to the chat. A draft you had in the prompt box is put back once the question is sent. `/aside <question>` typed by hand does the same. Under the answer, `⧉ Copy` and `✕ Close`; earlier side questions stay underneath on one line each, a click shows them again (the last 5). Each question is one request to the model, read from the prompt cache, and counts toward your usage like any other.
 
 ### Search
 

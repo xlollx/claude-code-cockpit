@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, ProcessRunInit, Register, RenderElement, RenderNode, SessionRateLimit } from 'claude-code'
+import type { EngineInterface, ProcessRunInit, PromptDecoration, Register, RenderElement, RenderNode, SessionRateLimit } from 'claude-code'
 
 import type { AgentId, Aside, DelegateJob, RunningItem, FileEdit, HandoverPhase, ModelChoice, Peer, PipelineRun, PullRequest, Reminder, SearchResult, TaskItem, Usage, Where, WriteCmd } from '../types'
 
@@ -43,10 +43,8 @@ const tickA = atom({ plugin: 'cockpit', key: 'tick' } as const, 0, { shape: 'tic
 const cacheA = atom({ plugin: 'cockpit', key: 'cache' } as const, null as { at: number; ttl: number } | null, { shape: 'cache-1' })
 const asides = atom({ plugin: 'cockpit', key: 'asides' } as const, [] as Aside[], { shape: 'asides-1' })
 const asideOpen = atom({ plugin: 'cockpit', key: 'asideOpen' } as const, null as string | null, { shape: 'asideOpen-1' })
-// a new key empties the side question field (✕ clear): a drawn Input keeps what was typed
-let ASIDE_GEN = 0
-// the side question being typed (its length picks the hints under the field)
-const asideLen = atom({ plugin: 'cockpit', key: 'asideLen' } as const, '', { shape: 'asideLen-2' })
+// the draft that was in the prompt box when a side question took it: put back once it is sent
+const asideStash = atom({ plugin: 'cockpit', key: 'asideStash' } as const, '', { shape: 'asideStash-1' })
 const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as string | null, { shape: 'remOpen-1' })
 const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
 const orderA = atom({ plugin: 'cockpit', key: 'order' } as const, [] as string[], { shape: 'order-1' })
@@ -472,7 +470,7 @@ const HELP: { title: string; tone: HelpTone; items: [string, string][] }[] = [
   ] },
   { title: 'Aside', tone: 'accent', items: [
     ['question', 'like /btw: answered with the chat in mind, never added to it; the last 5 stay below'],
-    ['/aside', 'a long question: /aside <question> in the prompt box, which wraps; ✕ clear empties the field'],
+    ['/aside', 'a click on the box (or typing /aside <question>) asks it in the prompt box; a draft there comes back after'],
   ] },
   { title: 'Search', tone: 'accent', items: [
     ['Enter', 'lists every match in the messages, newest first, and highlights it in the chat'],
@@ -3260,6 +3258,27 @@ async function askAside($: EngineInterface, raw: string) {
 // the chat and not in the Aside field again (as Esc would). There is no call that hands the
 // keys over, but a pane that closes gives them back: close it and open it again at once,
 // without asking for the keyboard (the answer arrives in the reopened panel)
+// Aside in the prompt box: "/aside " painted in the Aside colour, a dim hint after it, the
+// keyboard there. A draft already in the box is kept aside and put back once the question is sent
+const ASIDE_PREFIX = '/aside '
+// (Claude Code's own "<question>" hint follows an empty /aside: no hint of ours on top)
+const asideMarks = (text: string): PromptDecoration[] =>
+  text.startsWith(ASIDE_PREFIX) ? [{ start: 0, end: ASIDE_PREFIX.length - 1, color: ACCENT, bold: true }] : []
+
+async function askInPrompt($: EngineInterface) {
+  const box = await $.prompt.read().catch(() => ({ text: '', cursor: 0 }))
+  if (!box.text.startsWith(ASIDE_PREFIX)) {
+    await update($, asideStash, () => box.text)
+    const r = await $.prompt.fill({ text: ASIDE_PREFIX, decorations: asideMarks(ASIDE_PREFIX) })
+    if (!r.isFilled) {
+      await update($, asideStash, () => '')
+      $.ui.toast('Close the dialog first, then ask the side question')
+      return
+    }
+  }
+  await giveKeysBack($)
+}
+
 async function giveKeysBack($: EngineInterface) {
   await $.ui.close({ id: PANE })
   await openPane($)
@@ -4012,6 +4031,12 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // the /aside marks stay while the side question is typed (a fill's marks last one edit)
+  on('prompt.edit', async ($, e, next) => {
+    const r = await next(e)
+    const marks = asideMarks(r.text)
+    return marks.length === 0 ? r : { ...r, decorations: [...(r.decorations ?? []), ...marks] }
+  })
   on('command.run', { command: 'cockpit-setup' }, async $ => ({ text: await applyTerminalLook($) }))
   // a long side question is easier to write in the prompt box, which wraps
   on('command.run', { command: 'aside' }, async ($, e) => {
@@ -4019,6 +4044,12 @@ export const register: Register = (on, options) => {
       return { text: 'Usage: /aside <question>. The answer shows in the Aside section of the cockpit panel.' }
     }
     void askAside($, e.args)
+    // the draft the side question took the box from comes back
+    const stash = await read($, asideStash)
+    if (stash !== '') {
+      await update($, asideStash, () => '')
+      $.clock.after(300, () => void $.prompt.fill({ text: stash }).catch(() => undefined))
+    }
     return { text: 'Asked aside: the answer shows in the cockpit panel.' }
   })
   on('command.run', { command: 'cockpit-update' }, async $ => ({ text: await updateCockpit($) }))
@@ -4639,7 +4670,6 @@ export const register: Register = (on, options) => {
     const eff = await read($, effort)
     const w = await read($, where)
     const asked = await read($, asides)
-    const asideDraft = await read($, asideLen)
     await read($, tickA)
     const cache = await read($, cacheA)
     const running = [...(await read($, agentsRunA)), ...(await read($, bgRunA))]
@@ -4958,41 +4988,21 @@ export const register: Register = (on, options) => {
 
         {section('btw', 'Aside', ACCENT, undefined,
           <Box flexDirection="column">
-            {/* a framed field, so it reads as a place to type and click */}
+            {/* a framed box that reads as a field. The question is typed in the prompt box, which a
+                click starts with "/aside ": it wraps, scrolls and edits like any prompt, with one
+                cursor (a field in the panel shows its first row only) */}
             <Box borderStyle="round" borderColor={BLUE} paddingX={1} flexDirection="row">
-              <Text color={BLUE}>{'? '}</Text>
-              <Input
-                key={`aside-input-${ASIDE_GEN}`}
-                placeholder={narrow ? 'ask aside…' : 'click here and ask a side question…'}
-                value=""
-                submitLabel="ask"
-                onInput={v => void update($, asideLen, () => v)}
-                onSubmit={q => void (async () => {
-                  void update($, asideLen, () => '')
-                  void askAside($, q)
-                  await giveKeysBack($)
-                })()}
-              />
-            </Box>
-            {asideDraft !== '' && (
-              <Button key="aside-clear" plain onPress={() => { ASIDE_GEN++; void update($, asideLen, () => '') }}>
-                <Text backgroundColor={BAND_BG}><Text dimColor>{' ✕ '}</Text>{'clear '}</Text>
+              <Button key="aside-ask" plain onPress={() => void askInPrompt($)}>
+                <Text>
+                  <Text color={BLUE}>{'? '}</Text>
+                  <Text dimColor>{narrow ? 'ask aside…' : 'click here and ask a side question…'}</Text>
+                </Text>
               </Button>
-            )}
-            {/* Claude Code draws the field's first row only: a question longer than it is shown
-                whole here, wrapped, while it is typed */}
-            {/* a caret of its own at the end of the copy: where the next letter goes */}
-            {asideDraft.length > 30 && (
-              <Text color={BLUE}>
-                {asideDraft}
-                <Text color={ACCENT}>▏</Text>
-              </Text>
-            )}
+            </Box>
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {
-                // the hint only while nothing is being typed
-                return asideDraft.length > 30 ? null : <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: answered with the chat in mind, not added to it'}</Text>
+                return <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: typed in the prompt box, answered here, not added to the chat'}</Text>
               }
               return (
                 <Box flexDirection="column">
