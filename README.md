@@ -52,9 +52,10 @@ At the Claude Code prompt:
 It works out how the mod is installed. From a clone it runs `git pull --ff-only`, and the new version loads by itself a moment later. From the marketplace it updates the plugin; then restart Claude Code. By hand:
 
 - **Installed from the marketplace**: `/plugin update cockpit@claude-code-cockpit` (or `claude plugin update cockpit@claude-code-cockpit` from a shell), then restart Claude Code.
-- **Loaded from a clone** (`CLAUDE_CODE_PLUGIN_DIRS` or `--plugin-dir`): `git -C <folder> pull --ff-only`; open sessions pick the new version up at the end of their next turn, no restart needed.
+- **Loaded from a clone** (`CLAUDE_CODE_PLUGIN_DIRS` or `--plugin-dir`): `git -C <folder> pull --ff-only`; open sessions pick the new version up at the end of their next turn, no restart needed. Claude Code watches such a folder, so every change to it prints a `plugin.json changed — reloaded` line in every open session.
+- **Installed from a clone** (`claude plugin marketplace add <folder of the clone>`, then `claude plugin install cockpit@claude-code-cockpit`): the plugin is read from the clone itself, without the watching and its reload lines; after `git -C <folder> pull --ff-only`, `/reload-plugins` in each open session loads the new version.
 
-**`cockpit-update`** does whichever applies, from PowerShell: it finds the clone through `CLAUDE_CODE_PLUGIN_DIRS` in Claude Code's `settings.json`, otherwise it updates the marketplace install. Load it from your profile:
+**`cockpit-update`** does whichever applies, from PowerShell: it finds the clone through `CLAUDE_CODE_PLUGIN_DIRS` or a folder marketplace in Claude Code's `settings.json`, otherwise it updates the marketplace install. Load it from your profile:
 
 ```powershell
 # in $PROFILE (notepad $PROFILE)

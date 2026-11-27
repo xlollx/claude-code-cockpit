@@ -3386,7 +3386,20 @@ async function updateCockpit($: EngineInterface): Promise<string> {
         return `Not updated: the clone has local changes or commits that are not on GitHub (${root}). git says: ${short(r)}`
       }
       const after = await version()
-      return before === after ? `cockpit ${after} is already the latest.` : `cockpit ${before} -> ${after}. It loads by itself in a moment.`
+      if (before === after) {
+        return `cockpit ${after} is already the latest.`
+      }
+      // a clone named in CLAUDE_CODE_PLUGIN_DIRS is watched and reloads by itself; one installed
+      // from a folder marketplace (claude plugin marketplace add <clone>) is read again only on
+      // /reload-plugins (a --plugin-dir clone reloads by itself too: the hint does no harm there)
+      const sepList = (await platform($)) === 'windows' ? ';' : ':'
+      const normDir = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+      const watched = ((await $.env.get('CLAUDE_CODE_PLUGIN_DIRS')) ?? '')
+        .split(sepList)
+        .some(d => d.trim() !== '' && normDir(d.trim()) === normDir(root))
+      return watched
+        ? `cockpit ${before} -> ${after}. It loads by itself in a moment.`
+        : `cockpit ${before} -> ${after}. Run /reload-plugins in each open session (or restart it) to load it.`
     }
     const m = await run($, ['claude', 'plugin', 'marketplace', 'update', 'claude-code-cockpit'], { timeoutMs: 60_000 })
     const r = await run($, ['claude', 'plugin', 'update', 'cockpit@claude-code-cockpit'], { timeoutMs: 60_000 })
