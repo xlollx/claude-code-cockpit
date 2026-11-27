@@ -1930,9 +1930,6 @@ async function toggleAuto($: EngineInterface, id: AgentId) {
 }
 
 let DELEGATE_REGISTERED = false
-// when the last classic Stop arrived, and whether it seems taken by another hook (see turn.complete)
-let STOP_AT = 0
-let CLASSIC_STOP_OFF = false
 async function registerDelegate($: EngineInterface, installed: AgentId[]) {
   if (DELEGATE_REGISTERED) {
     return
@@ -3952,6 +3949,14 @@ export const register: Register = (on, options) => {
   // already running when the button was pressed
   on('turn.start', async ($, e, next) => {
     const r = await next(e)
+    // a background command that ended wakes Claude with a <task-notification> naming its id
+    if (e.agentId === undefined && e.text.includes('<task-notification>')) {
+      const ended = new Set([...e.text.matchAll(/<task-id>([\w-]+)<\/task-id>/g)].map(m => m[1]))
+      if (ended.size > 0) {
+        await update($, bgRunA, list => list.filter(b => !ended.has(b.id)))
+      }
+      void refreshAgents($)
+    }
     if (e.agentId === undefined && e.text.includes(HANDOVER_TAG)) {
       const job = await getJob($)
       if (job !== null && job.turnId === undefined) {
@@ -3966,17 +3971,6 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (e.agentId !== undefined) {
       return r
-    }
-    // an answered turn without a classic Stop near it: that hook is taken by another one (a managed
-    // settings hook), so finished background commands would never leave the list; they are hidden
-    if (e.reason === 'answer') {
-      const at = await $.clock.now()
-      $.clock.after(5000, () => {
-        if (STOP_AT < at - 5000 && !CLASSIC_STOP_OFF) {
-          CLASSIC_STOP_OFF = true
-          void update($, bgRunA, () => [])
-        }
-      })
     }
     const h = await getJob($)
     if (h === null) {
@@ -4048,48 +4042,29 @@ export const register: Register = (on, options) => {
   })
 
   // a subagent starting or ending: the Running section follows at once
-  on('classic.SubagentStart', async ($, e, next) => {
-    void refreshAgents($)
-    return next(e)
-  })
-  on('classic.SubagentStop', async ($, e, next) => {
-    void refreshAgents($)
-    return next(e)
-  })
-  // a command sent to the background shows up as soon as it starts. Read from tool.run, not the
-  // classic PostToolUse hook: a managed (company) settings hook can answer classic events first
-  // and end their chain, and then a module's classic hook never runs
+  // Background commands, with no classic hook: a managed (company) settings hook can take the
+  // classic events first and end their chain, and Claude Code then shows a notice on every one.
+  // A command shows up when tool.run starts it, under the id its result names ("... with ID: x"),
+  // and goes when the turn its end wakes up names that id in a <task-notification>
   on('tool.run', { tool: 'Bash' }, async ($, e, next) => {
     const r = await next(e)
-    const input = e as unknown as { run_in_background?: unknown; command?: unknown; description?: unknown }
-    if (!CLASSIC_STOP_OFF && input.run_in_background === true && typeof input.command === 'string') {
+    const input = e as unknown as { run_in_background?: unknown; command?: unknown; description?: unknown; agentId?: string }
+    // the main conversation's only: a subagent's command ends inside that subagent, where no
+    // turn of the main conversation names it; the subagent itself is listed meanwhile
+    if (input.agentId === undefined && input.run_in_background === true && typeof input.command === 'string') {
       const label = typeof input.description === 'string' && input.description !== '' ? input.description : input.command
       const start = await $.clock.now()
-      const id = `pending-${start}`
+      const id = /with ID:\s*([\w-]+)/.exec(JSON.stringify(r) ?? '')?.[1] ?? `pending-${start}`
       await update($, bgRunA, list => [...list, { id, kind: 'shell', label, start }])
     }
     return r
   })
-  // ...and at the end of every turn the engine's own list of background work replaces ours, so
-  // finished ones go (start times are kept for the ones still there, matched by their text)
-  on('classic.Stop', async ($, e, next) => {
-    STOP_AT = await $.clock.now()
-    CLASSIC_STOP_OFF = false
-    const tasks = (e.background_tasks ?? []).filter(t => t.type !== 'subagent' && t.type !== 'local_agent')
-    const now = await $.clock.now()
-    await update($, bgRunA, prev =>
-      tasks.map(t => {
-        const label = t.description || t.command || t.name || t.tool || t.type
-        const known = prev.find(p => p.id === t.id || p.label === label || (t.command !== undefined && p.label === t.command))
-        return { id: t.id, kind: t.type, label, start: known?.start ?? now }
-      }),
-    )
-    void refreshAgents($)
-    return next(e)
-  })
-
   on('tool.call', async ($, e, next) => {
     const input = e as unknown as { file_path?: string; notebook_path?: string; command?: string; skill?: string; args?: string }
+    // a subagent starting: the Running section lists it (it is read again every 10 s while shown)
+    if (e.tool === 'Agent' || e.tool === 'Task') {
+      $.clock.after(1500, () => void refreshAgents($))
+    }
 
     if (e.tool.startsWith('mcp__')) {
       const ran = await next(e)
