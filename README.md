@@ -83,6 +83,7 @@ By hand: `/plugin uninstall cockpit`, then copy `settings.json.cockpit-<date>.ba
 | Command | What it does |
 |---|---|
 | `/cockpit` (alias `/sidebar`) | opens the side panel again after you closed it with `×` |
+| `/aside <question>` | asks a side question from the prompt box, which wraps a long one; the answer shows in the panel's Aside section, never in the chat |
 | `/cockpit-setup` | applies the recommended Windows Terminal look (see Install), with a backup |
 | `/cockpit-update` | updates the mod to its latest version (see Update) |
 | `/cockpit-uninstall` | lists what uninstalling puts back; `/cockpit-uninstall yes` does it (see Uninstall) |
@@ -131,7 +132,7 @@ Production is easy to spot: a subscription, context or branch whose name matches
 
 ![Aside: a side question answered in a box in the panel, the chat untouched](docs/aside.png)
 
-A side question, like Claude Code's `/btw`, in a small window of its own. Type it and press Enter: Claude answers with the conversation in mind, briefly, in a box under the field, and nothing is added to the chat. The keyboard goes back to the prompt at once, so what you type next lands in the chat. Under the answer, `⧉ Copy` and `✕ Close`; earlier side questions stay underneath on one line each, a click shows them again (the last 5). Each question is one request to the model, read from the prompt cache, and counts toward your usage like any other.
+A side question, like Claude Code's `/btw`, in a small window of its own. Type it and press Enter: Claude answers with the conversation in mind, briefly, in a box under the field, and nothing is added to the chat. The keyboard goes back to the prompt at once, so what you type next lands in the chat. Under the answer, `⧉ Copy` and `✕ Close`; earlier side questions stay underneath on one line each, a click shows them again (the last 5). The field is one line that scrolls: `✕ clear` empties it, and a long question is easier to type as `/aside <question>` in the prompt box, which wraps. Each question is one request to the model, read from the prompt cache, and counts toward your usage like any other.
 
 ### Search
 

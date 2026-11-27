@@ -43,7 +43,9 @@ const tickA = atom({ plugin: 'cockpit', key: 'tick' } as const, 0, { shape: 'tic
 const cacheA = atom({ plugin: 'cockpit', key: 'cache' } as const, null as { at: number; ttl: number } | null, { shape: 'cache-1' })
 const asides = atom({ plugin: 'cockpit', key: 'asides' } as const, [] as Aside[], { shape: 'asides-1' })
 const asideOpen = atom({ plugin: 'cockpit', key: 'asideOpen' } as const, null as string | null, { shape: 'asideOpen-1' })
-// the side question being typed, shown whole under the field when it is longer than it
+// a new key empties the side question field (✕ clear): a drawn Input keeps what was typed
+let ASIDE_GEN = 0
+// the side question being typed (its length picks the hints under the field)
 const asideLen = atom({ plugin: 'cockpit', key: 'asideLen' } as const, '', { shape: 'asideLen-2' })
 const remOpen = atom({ plugin: 'cockpit', key: 'remOpen' } as const, null as string | null, { shape: 'remOpen-1' })
 const busy = atom({ plugin: 'cockpit', key: 'busy' } as const, false, { shape: 'busy-1' })
@@ -470,6 +472,7 @@ const HELP: { title: string; tone: HelpTone; items: [string, string][] }[] = [
   ] },
   { title: 'Aside', tone: 'accent', items: [
     ['question', 'like /btw: answered with the chat in mind, never added to it; the last 5 stay below'],
+    ['/aside', 'a long question: /aside <question> in the prompt box, which wraps; ✕ clear empties the field'],
   ] },
   { title: 'Search', tone: 'accent', items: [
     ['Enter', 'lists every match in the messages, newest first, and highlights it in the chat'],
@@ -3794,6 +3797,11 @@ async function registerCommands($: EngineInterface) {
     description: 'Cockpit look (side panel, prompt boxes, readable replies): on | off',
     argumentHint: 'on | off',
   })
+  await $.command.register({
+    name: 'aside',
+    description: 'Ask a side question (like /btw): answered in the cockpit panel, never added to the chat',
+    argumentHint: '<question>',
+  })
   await $.command.register({ name: 'cockpit-setup', description: 'Apply the recommended Windows Terminal look (colours, real bold), with a backup' })
   await $.command.register({ name: 'cockpit-update', description: 'Update the cockpit mod to its latest version (git pull of a clone, or the marketplace)' })
   await $.command.register({
@@ -4004,6 +4012,14 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'cockpit-setup' }, async $ => ({ text: await applyTerminalLook($) }))
+  // a long side question is easier to write in the prompt box, which wraps
+  on('command.run', { command: 'aside' }, async ($, e) => {
+    if (e.args.trim() === '') {
+      return { text: 'Usage: /aside <question>. The answer shows in the Aside section of the cockpit panel.' }
+    }
+    void askAside($, e.args)
+    return { text: 'Asked aside: the answer shows in the cockpit panel.' }
+  })
   on('command.run', { command: 'cockpit-update' }, async $ => ({ text: await updateCockpit($) }))
   on('command.run', { command: 'cockpit-uninstall' }, async ($, e) => ({ text: await uninstallCockpit($, e.args.trim().toLowerCase() === 'yes') }))
   on('command.run', { command: 'cockpit' }, openCommand)
@@ -4933,7 +4949,7 @@ export const register: Register = (on, options) => {
             <Box borderStyle="round" borderColor={BLUE} paddingX={1} flexDirection="row">
               <Text color={BLUE}>{'? '}</Text>
               <Input
-                key="aside-input"
+                key={`aside-input-${ASIDE_GEN}`}
                 placeholder={narrow ? 'ask aside…' : 'click here and ask a side question…'}
                 value=""
                 submitLabel="ask"
@@ -4946,13 +4962,18 @@ export const register: Register = (on, options) => {
                 })()}
               />
             </Box>
-            {/* a question longer than the field: all of it, wrapped, while it is being typed */}
-            {asideDraft.length > 20 && <Text color={BLUE}>{asideDraft}</Text>}
+            {asideDraft !== '' && (
+              <Button key="aside-clear" plain onPress={() => { ASIDE_GEN++; void update($, asideLen, () => '') }}>
+                <Text backgroundColor={BAND_BG}><Text dimColor>{' ✕ '}</Text>{'clear '}</Text>
+              </Button>
+            )}
+            {/* the field is one scrolling line: for a long question, the prompt box wraps */}
+            {asideDraft.length > 40 && <Text dimColor>{narrow ? 'long? /aside <question> in the prompt' : 'long question? type /aside <question> in the prompt box, it wraps'}</Text>}
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {
                 // the hint only while nothing is being typed
-                return asideDraft.length > 20 ? null : <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: answered with the chat in mind, not added to it'}</Text>
+                return asideDraft.length > 40 ? null : <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: answered with the chat in mind, not added to it'}</Text>
               }
               return (
                 <Box flexDirection="column">
