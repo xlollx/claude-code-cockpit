@@ -4647,7 +4647,7 @@ export const register: Register = (on, options) => {
     const cols = Math.max(20, (e.props.bodyColumns ?? e.viewport?.columns ?? 40) - 2 * sp.pad - 1)
     const narrow = cols < 36
     // Claude Code wraps an Input's text on Windows only (elsewhere it scrolls on one line)
-    const wrapsInput = (await platform($)) === 'windows'
+    const wrapsInput = (await $.env.get('OS')) === 'Windows_NT'
     // cells the footer's help chip takes, plus the gap before it
     const helpW = (narrow ? 3 : 8) + 1
     const barW = Math.max(6, Math.min(28, cols - 10))
