@@ -49,6 +49,7 @@ const orderA = atom({ plugin: 'cockpit', key: 'order' } as const, [] as string[]
 const hiddenA = atom({ plugin: 'cockpit', key: 'hidden' } as const, [] as string[], { shape: 'hidden-1' })
 const layoutA = atom({ plugin: 'cockpit', key: 'layout' } as const, false, { shape: 'layout-1' })
 const pipesCleared = atom({ plugin: 'cockpit', key: 'pipesCleared' } as const, [] as string[], { shape: 'pipesCleared-1' })
+const attachDirsA = atom({ plugin: 'cockpit', key: 'attachDirs' } as const, {} as Record<string, string>, { shape: 'attachDirs-1' })
 const attachA = atom({ plugin: 'cockpit', key: 'attachMode' } as const, 'off' as 'off' | 'copy' | 'move', { shape: 'attachMode-1' })
 const densityA = atom({ plugin: 'cockpit', key: 'density' } as const, 'normal' as Density, { shape: 'density-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
@@ -177,20 +178,37 @@ const SPACING: Record<Density, { pad: number; open: number; closed: number; head
 // to a config file or to another repository, named in a prompt, is never copied nor moved
 let ATTACH_DIR = 'attachments'
 const ATTACH_MODES = ['off', 'copy', 'move'] as const
+// a folder inside the working folder: one name or a short relative path (Workstation/allegati),
+// each part letters, digits, spaces, dot, dash, underscore; never absolute, never .. : kept with /
+function attachFolder(raw: string): string | null {
+  const parts = raw.trim().split(/[\\/]+/).filter(x => x !== '')
+  if (parts.length === 0 || parts.length > 4 || /^[\\/]|^[A-Za-z]:/.test(raw.trim())) {
+    return null
+  }
+  return parts.every(x => /^[\w .-]{1,60}$/.test(x) && !/^\.+$/.test(x)) ? parts.map(x => x.trim()).join('/') : null
+}
+// the attachments folder of a working folder: the one set for it in ⚙ layout, or the option's
+const cwdKey = (cwd: string) => cwd.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+const attachDirFor = (dirs: Readonly<Record<string, string>>, cwd: string) => dirs[cwdKey(cwd)] ?? ATTACH_DIR
+
+// ⚙ layout sets the folder for the working folder of this session only (on the Desktop
+// Workstation/allegati, in a repository allegati); the attachmentsFolder option stays the default
 async function setAttachDir($: EngineInterface, raw: string) {
-  const v = raw.trim() === '' ? 'attachments' : raw.trim()
-  if (!/^[\w .-]{1,60}$/.test(v) || /^\.+$/.test(v)) {
-    $.ui.toast('Folder name: letters, digits, spaces, dot, dash and underscore only (one folder, no path)')
+  const v = attachFolder(raw.trim() === '' ? ATTACH_DIR : raw)
+  if (v === null) {
+    $.ui.toast('Folder: a name or a relative path (e.g. Workstation/allegati); letters, digits, spaces, dot, dash, underscore')
     return
   }
-  const r = await $.config.set({ key: 'cockpit.attachmentsFolder', value: v }).catch((err: unknown) => ({ deny: String(err) }))
-  if ('deny' in r && r.deny !== undefined) {
-    $.ui.toast(`Folder not saved: ${String(r.deny).slice(0, 120)}`)
-    return
+  const cwd = await $.session.cwd()
+  const next = { ...(await read($, attachDirsA)) }
+  if (v === ATTACH_DIR) {
+    delete next[cwdKey(cwd)]
+  } else {
+    next[cwdKey(cwd)] = v
   }
-  applyOptions({ ...OPTIONS, attachmentsFolder: v })
-  $.ui.invalidate('ui.render')
-  $.ui.toast(`Attachments folder: ${v}`)
+  await update($, attachDirsA, () => next)
+  await $.store.set('attachDirs', next)
+  $.ui.toast(`Attachments of ${cwd.replace(/^.*[\\/](?=[^\\/]+[\\/]?$)/, '')}: ${v}/`)
 }
 
 async function setAttachMode($: EngineInterface, m: 'off' | 'copy' | 'move') {
@@ -208,7 +226,8 @@ async function attachFiles($: EngineInterface, text: string, mode: 'copy' | 'mov
   const sep = win ? '\\' : '/'
   const homeDir = await home($)
   const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
-  const dir = `${cwd}${sep}${ATTACH_DIR}`
+  const folder = attachDirFor(await read($, attachDirsA), cwd).replace(/\//g, sep)
+  const dir = `${cwd}${sep}${folder}`
   // where attachments arrive: Downloads and the temp folder (Paste image's clips live there too)
   const inbox = [`${homeDir}/Downloads`, await $.env.get('TEMP'), await $.env.get('TMP'), await $.env.get('TMPDIR'), win ? undefined : '/tmp']
     .filter((x): x is string => typeof x === 'string' && x !== '')
@@ -254,12 +273,12 @@ async function attachFiles($: EngineInterface, text: string, mode: 'copy' | 'mov
       $.ui.toast(`Not ${mode === 'move' ? 'moved' : 'copied'}: ${name} (${String(err).slice(0, 80)})`)
       continue
     }
-    const rel = `${ATTACH_DIR}${sep}${dst.slice(dir.length + 1)}`
+    const rel = `${folder}${sep}${dst.slice(dir.length + 1)}`
     out = out.split(shown).join(/\s/.test(rel) ? `"${rel}"` : rel)
     done.push(rel)
   }
   if (done.length > 0) {
-    $.ui.toast(`${done.length === 1 ? done[0] : `${done.length} files`} ${mode === 'move' ? 'moved' : 'copied'} into ${ATTACH_DIR}${sep}`)
+    $.ui.toast(`${done.length === 1 ? done[0] : `${done.length} files`} ${mode === 'move' ? 'moved' : 'copied'} into ${folder}${sep}`)
   }
   return out
 }
@@ -1319,7 +1338,7 @@ async function setTheme($: EngineInterface, name: string) {
 let OPTIONS: Readonly<Record<string, unknown>> = {}
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   OPTIONS = options
-  ATTACH_DIR = typeof options.attachmentsFolder === 'string' && /^[\w .-]{1,60}$/.test(options.attachmentsFolder.trim()) && !/^\.+$/.test(options.attachmentsFolder.trim()) ? options.attachmentsFolder.trim() : 'attachments'
+  ATTACH_DIR = (typeof options.attachmentsFolder === 'string' ? attachFolder(options.attachmentsFolder) : null) ?? 'attachments'
   PALETTE = String(options.palette ?? 'dark') in PALETTES ? String(options.palette ?? 'dark') : 'dark'
   const pal = PALETTES[PALETTE as keyof typeof PALETTES]
   ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, TOOL_BG, TOOL_BAR, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE, BAND_BG, CHIP_ORANGE, CHIP_BLUE, CHIP_VIOLET, CHIP_GREEN, GREEN } = pal)
@@ -3794,6 +3813,8 @@ async function restoreSaved($: EngineInterface) {
   await update($, hiddenA, () => (Array.isArray(savedHidden) ? savedHidden : []))
   const savedCleared = (await $.store.get('pipesCleared')) as string[] | undefined
   await update($, pipesCleared, () => (Array.isArray(savedCleared) ? savedCleared : []))
+  const savedDirs = (await $.store.get('attachDirs')) as Record<string, string> | undefined
+  await update($, attachDirsA, () => (savedDirs !== undefined && typeof savedDirs === 'object' && !Array.isArray(savedDirs) ? savedDirs : {}))
   const savedAttach = (await $.store.get('attachMode')) as 'off' | 'copy' | 'move' | undefined
   await update($, attachA, () => (savedAttach === 'copy' || savedAttach === 'move' ? savedAttach : 'off'))
   const savedDensity = (await $.store.get('density')) as Density | undefined
@@ -4593,6 +4614,7 @@ export const register: Register = (on, options) => {
     const mcpList = await read($, mcpA)
     const localList = await read($, localA)
     const attachMode = await read($, attachA)
+    const attachHere = attachDirFor(await read($, attachDirsA), w.cwd ?? '')
     const askedOpen = await read($, asideOpen)
     const wr = await read($, writes)
     const rem = await read($, reminders)
@@ -4787,11 +4809,11 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>
             <Text dimColor wrap="wrap">{narrow ? 'regex · noprod/nonprod never match' : 'regex, case-insensitive: matching names turn red; noprod and nonprod never match'}</Text>
-            {/* the project folder that files named in a prompt go into (Quick actions: off / copy / move) */}
+            {/* the folder that files named in a prompt go into, for this working folder (Quick actions: off / copy / move) */}
             <Box flexDirection="row" marginTop={1}>
               <Text dimColor>files </Text>
               <Box flexGrow={1} flexShrink={1} borderStyle="round" borderColor={TURN_RULE} paddingX={1}>
-                <Input key="lay-attach" value={ATTACH_DIR} submitLabel="save" placeholder="attachments" onSubmit={v => void setAttachDir($, v)} />
+                <Input key="lay-attach" value={attachHere} submitLabel="save" placeholder={ATTACH_DIR} onSubmit={v => void setAttachDir($, v)} />
               </Box>
             </Box>
             <Box flexDirection="row" columnGap={2} marginTop={1}>
@@ -5258,7 +5280,7 @@ export const register: Register = (on, options) => {
           {/* files named by their path in a prompt: left where they are, copied or moved into the project */}
           {/* the same pills as the model and effort rows: the chosen one filled, the others dim */}
           <Box flexDirection="row" flexWrap="wrap" marginTop={1}>
-            <Text dimColor>{narrow ? 'files ' : `files → ${ATTACH_DIR}/ `}</Text>
+            <Text dimColor>{narrow ? 'files ' : `files → ${attachHere}/ `}</Text>
             {ATTACH_MODES.map(m => (
               <Button key={`act-attach-${m}`} plain onPress={() => void setAttachMode($, m)}>
                 <Text color={m === attachMode ? (m === 'move' ? 'warning' : BLUE) : undefined} bold={m === attachMode} inverse={m === attachMode} dimColor={m !== attachMode}>{` ${m} `}</Text>

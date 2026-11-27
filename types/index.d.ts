@@ -117,6 +117,8 @@ declare module 'claude-code' {
       density: Shaped<'compact' | 'normal' | 'airy'>
       /** files whose paths are in a prompt: left alone, copied or moved into the attachments folder */
       attachMode: Shaped<'off' | 'copy' | 'move'>
+      /** attachments folder set in ⚙ layout per working folder (lowercase path with /) */
+      attachDirs: Shaped<Record<string, string>>
       /** "mode" skills turned on in this session (e.g. "i-have-adhd", "ponytail full") */
       modes: Shaped<string[]>
       /** models shown in "Modello": known aliases + families seen in use or in agents */

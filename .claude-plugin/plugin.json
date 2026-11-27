@@ -1,7 +1,7 @@
 {
   "name": "cockpit",
   "displayName": "Cockpit",
-  "version": "0.41.2",
+  "version": "0.42.0",
   "description": "Operational side panel and a more readable chat for Claude Code in the terminal, OpenCode-inspired look",
   "author": {
     "name": "xlollx",
@@ -91,7 +91,7 @@
     "attachmentsFolder": {
       "type": "string",
       "title": "Attachments folder",
-      "description": "Folder of the project that files named by their path in a prompt are copied or moved into, when Attachments is set to copy or move in the panel",
+      "description": "Folder, inside the working folder, that files named by their path in a prompt are copied or moved into (files: copy or move in the panel): a name or a relative path such as Workstation/allegati. The default for every working folder; ⚙ layout sets a different one for a single working folder",
       "default": "attachments"
     }
   },
