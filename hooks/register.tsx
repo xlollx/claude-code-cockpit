@@ -4938,11 +4938,7 @@ export const register: Register = (on, options) => {
                 value=""
                 submitLabel="ask"
                 // the field is one scrolling line: what is typed is also shown whole under it
-                onInput={v => {
-                  void update($, asideLen, () => v)
-                  // diagnosis of a field that stops showing the text on Windows: the length only, never the text
-                  void hoLog($, `aside input len=${v.length} lines=${v.split('\n').length} cols=${cols}`)
-                }}
+                onInput={v => void update($, asideLen, () => v)}
                 onSubmit={q => void (async () => {
                   void update($, asideLen, () => '')
                   void askAside($, q)
@@ -4955,7 +4951,8 @@ export const register: Register = (on, options) => {
             {(() => {
               const cur = asked.find(x => x.id === askedOpen) ?? asked[0]
               if (cur === undefined) {
-                return <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: answered with the chat in mind, not added to it'}</Text>
+                // the hint only while nothing is being typed
+                return asideDraft.length > 20 ? null : <Text dimColor>{narrow ? 'like /btw, not added to the chat' : 'like /btw: answered with the chat in mind, not added to it'}</Text>
               }
               return (
                 <Box flexDirection="column">
