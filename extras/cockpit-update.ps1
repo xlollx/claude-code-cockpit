@@ -6,6 +6,8 @@
 #
 # - Loaded from a clone (CLAUDE_CODE_PLUGIN_DIRS in Claude Code's settings.json, or -Path):
 #   git pull --ff-only; open sessions pick the new version up at the end of their next turn.
+# - Installed from a clone added as a folder marketplace (claude plugin marketplace add <clone>):
+#   git pull --ff-only too; open sessions load it on /reload-plugins.
 # - Installed from the marketplace: refreshes the marketplace and updates the plugin;
 #   restart Claude Code to apply.
 function cockpit-update {
@@ -27,6 +29,18 @@ function cockpit-update {
         } catch { }
     }
     if ($env:CLAUDE_CODE_PLUGIN_DIRS) { $dirs += $env:CLAUDE_CODE_PLUGIN_DIRS -split ';' }
+    $watched = @($dirs)
+    # a clone installed as a folder marketplace (extraKnownMarketplaces, source 'directory')
+    if (Test-Path -LiteralPath $settings) {
+        try {
+            $known = (Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json).extraKnownMarketplaces
+            if ($known) {
+                foreach ($m in $known.PSObject.Properties) {
+                    if ($m.Value.source.source -eq 'directory' -and $m.Value.source.path) { $dirs += $m.Value.source.path }
+                }
+            }
+        } catch { }
+    }
     $clone = $dirs | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ '.git')) -and (& $isCockpit $_) } | Select-Object -First 1
 
     if ($clone) {
@@ -40,7 +54,11 @@ function cockpit-update {
         if ($before -eq $after) {
             Write-Host "cockpit $after is already the latest ($clone)"
         } else {
-            Write-Host "cockpit $before -> $after. Open sessions load it at the end of their next turn."
+            if ($watched -contains $clone) {
+                Write-Host "cockpit $before -> $after. Open sessions load it at the end of their next turn."
+            } else {
+                Write-Host "cockpit $before -> $after. Run /reload-plugins in each open session (or restart it) to load it."
+            }
         }
         return
     }

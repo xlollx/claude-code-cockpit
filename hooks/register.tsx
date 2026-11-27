@@ -51,6 +51,7 @@ const orderA = atom({ plugin: 'cockpit', key: 'order' } as const, [] as string[]
 const hiddenA = atom({ plugin: 'cockpit', key: 'hidden' } as const, [] as string[], { shape: 'hidden-1' })
 const layoutA = atom({ plugin: 'cockpit', key: 'layout' } as const, false, { shape: 'layout-1' })
 const pipesCleared = atom({ plugin: 'cockpit', key: 'pipesCleared' } as const, [] as string[], { shape: 'pipesCleared-1' })
+const attachDirsA = atom({ plugin: 'cockpit', key: 'attachDirs' } as const, {} as Record<string, string>, { shape: 'attachDirs-1' })
 const attachA = atom({ plugin: 'cockpit', key: 'attachMode' } as const, 'off' as 'off' | 'copy' | 'move', { shape: 'attachMode-1' })
 const densityA = atom({ plugin: 'cockpit', key: 'density' } as const, 'normal' as Density, { shape: 'density-1' })
 const termLook = atom({ plugin: 'cockpit', key: 'termLook' } as const, 'na' as 'na' | 'pending' | 'done', { shape: 'termLook-1' })
@@ -179,20 +180,37 @@ const SPACING: Record<Density, { pad: number; open: number; closed: number; head
 // to a config file or to another repository, named in a prompt, is never copied nor moved
 let ATTACH_DIR = 'attachments'
 const ATTACH_MODES = ['off', 'copy', 'move'] as const
+// a folder inside the working folder: one name or a short relative path (Workstation/allegati),
+// each part letters, digits, spaces, dot, dash, underscore; never absolute, never .. : kept with /
+function attachFolder(raw: string): string | null {
+  const parts = raw.trim().split(/[\\/]+/).filter(x => x !== '')
+  if (parts.length === 0 || parts.length > 4 || /^[\\/]|^[A-Za-z]:/.test(raw.trim())) {
+    return null
+  }
+  return parts.every(x => /^[\w .-]{1,60}$/.test(x) && !/^\.+$/.test(x)) ? parts.map(x => x.trim()).join('/') : null
+}
+// the attachments folder of a working folder: the one set for it in ⚙ layout, or the option's
+const cwdKey = (cwd: string) => cwd.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+const attachDirFor = (dirs: Readonly<Record<string, string>>, cwd: string) => dirs[cwdKey(cwd)] ?? ATTACH_DIR
+
+// ⚙ layout sets the folder for the working folder of this session only (on the Desktop
+// Workstation/allegati, in a repository allegati); the attachmentsFolder option stays the default
 async function setAttachDir($: EngineInterface, raw: string) {
-  const v = raw.trim() === '' ? 'attachments' : raw.trim()
-  if (!/^[\w .-]{1,60}$/.test(v) || /^\.+$/.test(v)) {
-    $.ui.toast('Folder name: letters, digits, spaces, dot, dash and underscore only (one folder, no path)')
+  const v = attachFolder(raw.trim() === '' ? ATTACH_DIR : raw)
+  if (v === null) {
+    $.ui.toast('Folder: a name or a relative path (e.g. Workstation/allegati); letters, digits, spaces, dot, dash, underscore')
     return
   }
-  const r = await $.config.set({ key: 'cockpit.attachmentsFolder', value: v }).catch((err: unknown) => ({ deny: String(err) }))
-  if ('deny' in r && r.deny !== undefined) {
-    $.ui.toast(`Folder not saved: ${String(r.deny).slice(0, 120)}`)
-    return
+  const cwd = await $.session.cwd()
+  const next = { ...(await read($, attachDirsA)) }
+  if (v === ATTACH_DIR) {
+    delete next[cwdKey(cwd)]
+  } else {
+    next[cwdKey(cwd)] = v
   }
-  applyOptions({ ...OPTIONS, attachmentsFolder: v })
-  $.ui.invalidate('ui.render')
-  $.ui.toast(`Attachments folder: ${v}`)
+  await update($, attachDirsA, () => next)
+  await $.store.set('attachDirs', next)
+  $.ui.toast(`Attachments of ${cwd.replace(/^.*[\\/](?=[^\\/]+[\\/]?$)/, '')}: ${v}/`)
 }
 
 async function setAttachMode($: EngineInterface, m: 'off' | 'copy' | 'move') {
@@ -210,7 +228,8 @@ async function attachFiles($: EngineInterface, text: string, mode: 'copy' | 'mov
   const sep = win ? '\\' : '/'
   const homeDir = await home($)
   const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
-  const dir = `${cwd}${sep}${ATTACH_DIR}`
+  const folder = attachDirFor(await read($, attachDirsA), cwd).replace(/\//g, sep)
+  const dir = `${cwd}${sep}${folder}`
   // where attachments arrive: Downloads and the temp folder (Paste image's clips live there too)
   const inbox = [`${homeDir}/Downloads`, await $.env.get('TEMP'), await $.env.get('TMP'), await $.env.get('TMPDIR'), win ? undefined : '/tmp']
     .filter((x): x is string => typeof x === 'string' && x !== '')
@@ -256,12 +275,12 @@ async function attachFiles($: EngineInterface, text: string, mode: 'copy' | 'mov
       $.ui.toast(`Not ${mode === 'move' ? 'moved' : 'copied'}: ${name} (${String(err).slice(0, 80)})`)
       continue
     }
-    const rel = `${ATTACH_DIR}${sep}${dst.slice(dir.length + 1)}`
+    const rel = `${folder}${sep}${dst.slice(dir.length + 1)}`
     out = out.split(shown).join(/\s/.test(rel) ? `"${rel}"` : rel)
     done.push(rel)
   }
   if (done.length > 0) {
-    $.ui.toast(`${done.length === 1 ? done[0] : `${done.length} files`} ${mode === 'move' ? 'moved' : 'copied'} into ${ATTACH_DIR}${sep}`)
+    $.ui.toast(`${done.length === 1 ? done[0] : `${done.length} files`} ${mode === 'move' ? 'moved' : 'copied'} into ${folder}${sep}`)
   }
   return out
 }
@@ -1321,7 +1340,7 @@ async function setTheme($: EngineInterface, name: string) {
 let OPTIONS: Readonly<Record<string, unknown>> = {}
 function applyOptions(options: Readonly<Record<string, unknown>>) {
   OPTIONS = options
-  ATTACH_DIR = typeof options.attachmentsFolder === 'string' && /^[\w .-]{1,60}$/.test(options.attachmentsFolder.trim()) && !/^\.+$/.test(options.attachmentsFolder.trim()) ? options.attachmentsFolder.trim() : 'attachments'
+  ATTACH_DIR = (typeof options.attachmentsFolder === 'string' ? attachFolder(options.attachmentsFolder) : null) ?? 'attachments'
   PALETTE = String(options.palette ?? 'dark') in PALETTES ? String(options.palette ?? 'dark') : 'dark'
   const pal = PALETTES[PALETTE as keyof typeof PALETTES]
   ;({ PANE_BG, ACCENT, ACCENT_SOFT, BLUE, VIOLET, PROD, USER_BG, CODE_BG, TOOL_BG, TOOL_BAR, CODE_BAR, TURN_RULE, HEAD_BG, ZEBRA_BG, TABLE_BORDER, HL_BG, HL_FG, CODE_INLINE, BAND_BG, CHIP_ORANGE, CHIP_BLUE, CHIP_VIOLET, CHIP_GREEN, GREEN } = pal)
@@ -2816,6 +2835,15 @@ function styleLine(line: string): StyledLine {
       code = !code
       continue
     }
+    // a bare URL is text as it is: its _ and * are not style markers (…/_git/… is not italic)
+    const url = code || (ch !== 'h' && ch !== 'H') ? null : /^https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/i.exec(s.slice(k))
+    if (url) {
+      for (const uc of url[0]) {
+        chars.push({ c: uc, b, i: it, code: false })
+      }
+      k += url[0].length - 1
+      continue
+    }
     if (!code && (ch === '*' || ch === '_') && /[^\w*]|^$/.test(s[k - 1] ?? '') !== /[^\w*]|^$/.test(s[k + 1] ?? '')) {
       // a single * or _ next to a word on one side only: an italic marker
       it = !it
@@ -2886,6 +2914,25 @@ function rebuild(lines: StyledLine[], from: { l: number; k: number }, to: { l: n
 }
 
 const alnum = (c: string) => /[\p{L}\p{N}]/u.test(c)
+
+// A prompt with pasted text carries it twice: the "[Pasted text #N +M lines]" placeholder the
+// composer showed, and the text itself in <pasted_content id="…"> … </pasted_content id="…">
+// tags added for Claude. The prompt box shows it as typed: the block goes, or becomes a short
+// line when no placeholder stands for it
+const PASTED_RX = /\n?<pasted_content id="[^"]*">\n?([\s\S]*?)\n?<\/pasted_content[^>]*>\n?/g
+function hidePasted(text: string): string {
+  if (!text.includes('<pasted_content')) {
+    return text
+  }
+  const placeholder = /\[Pasted text #\d+/.test(text)
+  return text
+    .replace(PASTED_RX, (_, body: string) => {
+      const n = body.trim() === '' ? 0 : body.trim().split('\n').length
+      return placeholder ? '\n' : `\n[pasted text · ${n} ${n === 1 ? 'line' : 'lines'}]\n`
+    })
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
 
 function selectionMarkdown(sel: string, rowMd: string | undefined): string {
   // the drawn text, its bullets and bars made markdown again (used when no row is found)
@@ -3360,7 +3407,20 @@ async function updateCockpit($: EngineInterface): Promise<string> {
         return `Not updated: the clone has local changes or commits that are not on GitHub (${root}). git says: ${short(r)}`
       }
       const after = await version()
-      return before === after ? `cockpit ${after} is already the latest.` : `cockpit ${before} -> ${after}. It loads by itself in a moment.`
+      if (before === after) {
+        return `cockpit ${after} is already the latest.`
+      }
+      // a clone named in CLAUDE_CODE_PLUGIN_DIRS is watched and reloads by itself; one installed
+      // from a folder marketplace (claude plugin marketplace add <clone>) is read again only on
+      // /reload-plugins (a --plugin-dir clone reloads by itself too: the hint does no harm there)
+      const sepList = (await platform($)) === 'windows' ? ';' : ':'
+      const normDir = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+      const watched = ((await $.env.get('CLAUDE_CODE_PLUGIN_DIRS')) ?? '')
+        .split(sepList)
+        .some(d => d.trim() !== '' && normDir(d.trim()) === normDir(root))
+      return watched
+        ? `cockpit ${before} -> ${after}. It loads by itself in a moment.`
+        : `cockpit ${before} -> ${after}. Run /reload-plugins in each open session (or restart it) to load it.`
     }
     const m = await run($, ['claude', 'plugin', 'marketplace', 'update', 'claude-code-cockpit'], { timeoutMs: 60_000 })
     const r = await run($, ['claude', 'plugin', 'update', 'cockpit@claude-code-cockpit'], { timeoutMs: 60_000 })
@@ -3755,6 +3815,8 @@ async function restoreSaved($: EngineInterface) {
   await update($, hiddenA, () => (Array.isArray(savedHidden) ? savedHidden : []))
   const savedCleared = (await $.store.get('pipesCleared')) as string[] | undefined
   await update($, pipesCleared, () => (Array.isArray(savedCleared) ? savedCleared : []))
+  const savedDirs = (await $.store.get('attachDirs')) as Record<string, string> | undefined
+  await update($, attachDirsA, () => (savedDirs !== undefined && typeof savedDirs === 'object' && !Array.isArray(savedDirs) ? savedDirs : {}))
   const savedAttach = (await $.store.get('attachMode')) as 'off' | 'copy' | 'move' | undefined
   await update($, attachA, () => (savedAttach === 'copy' || savedAttach === 'move' ? savedAttach : 'off'))
   const savedDensity = (await $.store.get('density')) as Density | undefined
@@ -4064,7 +4126,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const input = e as unknown as { file_path?: string; notebook_path?: string; command?: string; skill?: string; args?: string }
     // a subagent starting: the Running section lists it (it is read again every 10 s while shown)
-    if (e.tool === 'Agent') {
+    if (e.tool === 'Agent' || (e.tool as string) === 'Task') {
       $.clock.after(1500, () => void refreshAgents($))
     }
 
@@ -4160,13 +4222,14 @@ export const register: Register = (on, options) => {
     if (COMMAND_ROW.test(e.props.text)) {
       return next(e)
     }
+    const shown = hidePasted(e.props.text)
 
     return (
       <Box flexDirection="row" marginTop={1} marginRight={GAP}>
         <Box width={1} backgroundColor={BLUE} />
         <Box flexGrow={1} backgroundColor={USER_BG} paddingX={2} paddingY={1}>
           <Text>
-            {splitHits(e.props.text, hq).map(([t, hit]) =>
+            {splitHits(shown, hq).map(([t, hit]) =>
               hit ? (
                 <Text backgroundColor={HL_BG} color={HL_FG} bold>
                   {t}
@@ -4554,6 +4617,7 @@ export const register: Register = (on, options) => {
     const mcpList = await read($, mcpA)
     const localList = await read($, localA)
     const attachMode = await read($, attachA)
+    const attachHere = attachDirFor(await read($, attachDirsA), w.cwd ?? '')
     const askedOpen = await read($, asideOpen)
     const wr = await read($, writes)
     const rem = await read($, reminders)
@@ -4748,11 +4812,11 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>
             <Text dimColor wrap="wrap">{narrow ? 'regex · noprod/nonprod never match' : 'regex, case-insensitive: matching names turn red; noprod and nonprod never match'}</Text>
-            {/* the project folder that files named in a prompt go into (Quick actions: off / copy / move) */}
+            {/* the folder that files named in a prompt go into, for this working folder (Quick actions: off / copy / move) */}
             <Box flexDirection="row" marginTop={1}>
               <Text dimColor>files </Text>
               <Box flexGrow={1} flexShrink={1} borderStyle="round" borderColor={TURN_RULE} paddingX={1}>
-                <Input key="lay-attach" value={ATTACH_DIR} submitLabel="save" placeholder="attachments" onSubmit={v => void setAttachDir($, v)} />
+                <Input key="lay-attach" value={attachHere} submitLabel="save" placeholder={ATTACH_DIR} onSubmit={v => void setAttachDir($, v)} />
               </Box>
             </Box>
             <Box flexDirection="row" columnGap={2} marginTop={1}>
@@ -5224,7 +5288,7 @@ export const register: Register = (on, options) => {
           {/* files named by their path in a prompt: left where they are, copied or moved into the project */}
           {/* the same pills as the model and effort rows: the chosen one filled, the others dim */}
           <Box flexDirection="row" flexWrap="wrap" marginTop={1}>
-            <Text dimColor>{narrow ? 'files ' : `files → ${ATTACH_DIR}/ `}</Text>
+            <Text dimColor>{narrow ? 'files ' : `files → ${attachHere}/ `}</Text>
             {ATTACH_MODES.map(m => (
               <Button key={`act-attach-${m}`} plain onPress={() => void setAttachMode($, m)}>
                 <Text color={m === attachMode ? (m === 'move' ? 'warning' : BLUE) : undefined} bold={m === attachMode} inverse={m === attachMode} dimColor={m !== attachMode}>{` ${m} `}</Text>
